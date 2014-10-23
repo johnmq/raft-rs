@@ -1,0 +1,5 @@
+[package]
+
+name = "raft-rs"
+version = "0.0.1"
+authors = ["Alexey Fedorov <alexey.fedorov@wimdu.com>"]
