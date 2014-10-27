@@ -3,3 +3,4 @@
 #![license = "MIT"]
 
 pub mod node;
+pub mod intercommunication;
