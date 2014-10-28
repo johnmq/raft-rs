@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::io::timer::sleep;
 use std::time::duration::Duration;
+use std::comm::{Disconnected, TryRecvError};
 
 use std::sync::{Arc, Mutex};
 
@@ -69,11 +70,19 @@ impl Endpoint {
         self.tx.send(Ack(self.host.clone(), host));
     }
 
+    pub fn send_leader_query_to(&self, host: String) {
+        self.tx.send(LeaderQuery(self.host.clone(), host));
+    }
+
+    pub fn send_leader_query_response_to(&self, host: String, leader_host: Option < String >) {
+        self.tx.send(LeaderQueryResponse(self.host.clone(), host, leader_host));
+    }
+
     pub fn listen_block_with_timeout(&self) -> Option < DumbPackage > {
         for _ in range(0, 10u) {
-            match self.rx.try_recv() {
-                Ok(result) => return Some(result),
-                _ => {},
+            match self.listen() {
+                Some(x) => return Some(x),
+                _ => ()
             }
 
             sleep(Duration::milliseconds(10));
@@ -81,11 +90,24 @@ impl Endpoint {
 
         None
     }
+
+    pub fn listen(&self) -> Option < DumbPackage > {
+        match self.rx.try_recv() {
+            Ok(result) => Some(result),
+            _ => None,
+        }
+    }
 }
 
 pub enum DumbPackage {
     // Ack("sender host", "recipient host")
     Ack(String, String),
+
+    // LeaderQuery("requester", "responder")
+    LeaderQuery(String, String),
+
+    // LeaderQueryResponse("responder", "requester", "leader_host")
+    LeaderQueryResponse(String, String, Option < String >),
 }
 
 pub fn start < T: Intercommunication + Send >(intercommunication: T) -> Sender < int > {
@@ -102,11 +124,20 @@ pub fn start < T: Intercommunication + Send >(intercommunication: T) -> Sender <
                     println!("got something!");
                     intercommunication.send(recipient.clone(), Ack(sender.clone(), recipient))
                 },
+                Some(LeaderQuery(requester, responder)) => {
+                    intercommunication.send(responder.clone(), LeaderQuery(requester.clone(), responder))
+                },
+                Some(LeaderQueryResponse(responder, requester, leader_host)) => {
+                    intercommunication.send(
+                        requester.clone(),
+                        LeaderQueryResponse(responder, requester, leader_host),
+                        );
+                },
                 None => ()
             }
 
             match exit_rx.try_recv() {
-                Ok(_) => break,
+                Ok(_) | Err(Disconnected) => break,
                 _ => (),
             }
 
