@@ -55,7 +55,7 @@ struct NodeServiceContact {
     nodes_rx: Receiver < int >,
 }
 
-impl < T: Intercommunication > Node {
+impl Node {
     pub fn new() -> Node {
         Node { contact: None }
     }
@@ -91,10 +91,10 @@ impl < T: Intercommunication > Node {
         self.contact().exit_tx.send(0);
     }
 
-    pub fn start(&mut self, host: &str, intercommunication: T) {
+    pub fn start(&mut self, host: &str) {
         match self.contact {
             Some(_) => {},
-            None => self.contact = Some(NodeService::start_service(host.to_string(), intercommunication)),
+            None => self.contact = Some(NodeService::start_service(host.to_string())),
         }
     }
 
@@ -109,8 +109,8 @@ impl < T: Intercommunication > Node {
 
 }
 
-impl < T: Intercommunication > NodeService {
-    fn start_service(host: String, intercommunication: T) -> NodeContact {
+impl NodeService {
+    fn start_service(host: String) -> NodeContact {
         let (state_tx, service_state_rx) = channel();
         let (service_state_tx, state_rx) = channel();
 
@@ -166,19 +166,19 @@ impl < T: Intercommunication > NodeService {
                 dead = dead || me.try_serve_nodes();
                 dead = dead || me.exit_if_asked();
 
-                match intercommunication.try_listen() {
-                    Some(Ack(from_host, _)) => {
-                        let node_hosts: Vec < String > = me.nodes.iter().map(|x| { x.host }).collect();
+                //match intercommunication.try_listen() {
+                //    Some(Ack(from_host, _)) => {
+                //        let node_hosts: Vec < String > = me.nodes.iter().map(|x| { x.host }).collect();
 
-                        match node_hosts.contains(&from_host) {
-                            true => (),
-                            false => {
-                                me.nodes.push(NodeHost { host: from_host.clone() });
-                            }
-                        }
-                    },
-                    _ => ()
-                }
+                //        match node_hosts.contains(&from_host) {
+                //            true => (),
+                //            false => {
+                //                me.nodes.push(NodeHost { host: from_host.clone() });
+                //            }
+                //        }
+                //    },
+                //    _ => ()
+                //}
 
                 sleep(Duration::milliseconds(10));
             }
