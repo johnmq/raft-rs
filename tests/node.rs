@@ -106,6 +106,7 @@ mod who_is_the_leader {
         let node_hosts: Vec < &str > = nodes.iter().map(|x| { x.host.as_slice() }).collect();
 
         assert!(node_hosts.contains(&"leader"));
+        // PENDING
         assert!(node_hosts.contains(&"john"));
         assert!(node_hosts.contains(&"sarah"));
         assert!(node_hosts.contains(&"james"));
