@@ -4,3 +4,4 @@
 
 pub mod node;
 pub mod intercommunication;
+pub mod replication;
