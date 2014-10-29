@@ -284,6 +284,7 @@ mod election {
             let sig = helpers::start_comm(comm);
 
             leader.forced_state(Leader);
+            node.introduce("leader");
             node.force_follow("leader");
 
             helpers::sleep_ms(350);
@@ -366,8 +367,49 @@ mod election {
 
             helpers::sleep_ms(500);
 
-            let state = node_1.state();
-            assert_eq!(Leader, state);
+            let states = vec![node_1.state(), node_2.state(), node_3.state()];
+            assert!(states.contains(&Leader));
+
+            node_1.stop();
+            node_2.stop();
+            node_3.stop();
+
+            sig
+        })
+    }
+
+    #[test]
+    fn all_nodes_become_candidates_at_once() {
+        let mut node_1 = helpers::node();
+        let mut node_2 = helpers::node();
+        let mut node_3 = helpers::node();
+
+        helpers::with_proper_comm(|mut comm| {
+            node_1.start("john", &mut comm);
+            node_2.start("duck", &mut comm);
+            node_3.start("sarah", &mut comm);
+
+            let sig = helpers::start_comm(comm);
+
+            node_1.introduce("duck");
+            node_3.introduce("duck");
+
+            node_1.introduce("sarah");
+            node_2.introduce("sarah");
+
+            node_2.introduce("john");
+            node_3.introduce("john");
+
+            helpers::sleep_ms(100);
+
+            node_1.forced_state(Candidate);
+            node_2.forced_state(Candidate);
+            node_3.forced_state(Candidate);
+
+            helpers::sleep_ms(950);
+
+            let states = vec![node_1.state(), node_2.state(), node_3.state()];
+            assert!(states.contains(&Leader));
 
             node_1.stop();
             node_2.stop();

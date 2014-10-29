@@ -8,6 +8,8 @@ use std::sync::{Arc, Mutex};
 
 use std::task::TaskBuilder;
 
+use std::{rand, num};
+
 use super::intercommunication::{Intercommunication, Ack, LeaderQuery, LeaderQueryResponse, Pack, Endpoint, AppendQuery, AppendLog, RequestVote, Vote};
 
 #[deriving(Clone,Show,PartialEq)]
@@ -307,10 +309,13 @@ impl NodeService {
 
     fn election_handler(&mut self) {
         let passed = time::now().to_timespec() - self.last_append_log_seen_at;
+        let ms = 150 + num::abs(rand::random::< i64 >() % 150);
+        let duration = Duration::milliseconds(ms);
 
         match self.state {
             Follower => {
-                if passed > Duration::milliseconds(300) {
+                if passed > duration {
+                    println!("Passed duration: {}", ms);
                     self.state = Candidate;
                     self.votes = 0;
                     self.already_requested = false;
@@ -318,7 +323,13 @@ impl NodeService {
                 }
             },
             Candidate => {
-                if !self.already_requested {
+                if passed > duration {
+                    self.state = Follower;
+                    self.votes = 0;
+                    self.last_append_log_seen_at = time::now().to_timespec();
+                }
+
+                if !self.already_requested && self.state == Candidate {
                     self.already_requested = true;
                     self.term += 1;
 
