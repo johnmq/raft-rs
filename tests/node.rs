@@ -250,7 +250,7 @@ mod discovery {
 mod election {
 
     use helpers;
-    use raft_rs::node::{Candidate, Leader, Follower};
+    use raft_rs::node::{Candidate, Leader, Follower, State};
 
     #[test]
     fn follower_not_getting_append_logs_becomes_candidate() {
@@ -327,6 +327,47 @@ mod election {
 
             let leader = node_1.fetch_leader();
             assert_eq!("duck".to_string(), leader.unwrap().host);
+
+            node_1.stop();
+            node_2.stop();
+            node_3.stop();
+
+            sig
+        })
+    }
+
+    #[test]
+    fn concurrent_candidates_decide_who_leader_is() {
+        let mut node_1 = helpers::node();
+        let mut node_2 = helpers::node();
+        let mut node_3 = helpers::node();
+
+        helpers::with_proper_comm(|mut comm| {
+            node_1.start("john", &mut comm);
+            node_2.start("duck", &mut comm);
+            node_3.start("sarah", &mut comm);
+
+            let sig = helpers::start_comm(comm);
+
+            node_1.introduce("duck");
+            node_3.introduce("duck");
+
+            node_1.introduce("sarah");
+            node_2.introduce("sarah");
+
+            node_2.introduce("john");
+            node_3.introduce("john");
+
+            helpers::sleep_ms(100);
+
+            node_1.forced_state(Follower);
+            node_2.forced_state(Candidate);
+            node_3.forced_state(Candidate);
+
+            helpers::sleep_ms(500);
+
+            let state = node_1.state();
+            assert_eq!(Leader, state);
 
             node_1.stop();
             node_2.stop();

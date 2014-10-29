@@ -273,9 +273,10 @@ impl NodeService {
                 self.leader_host = Some(NodeHost { host: leader });
             },
             Some(Pack(candidate, _, RequestVote(term))) => {
-                if term > self.term && self.state == Follower {
+                if term > self.term {
                     self.term = term;
                     self.votes = 0;
+                    self.last_append_log_seen_at = time::now().to_timespec();
                     self.comm.send(candidate, Vote(term));
                 }
             },
