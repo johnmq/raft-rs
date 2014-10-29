@@ -34,33 +34,36 @@ struct NodeService {
 }
 
 struct NodeContact {
-    state_tx: Sender < Option < State > >,
-    state_rx: Receiver < State >,
-
-    leader_tx: Sender < Option < String > >,
-    leader_rx: Receiver < Option < NodeHost > >,
-
-    exit_tx: Sender < int >,
-
-    nodes_tx: Sender < int >,
-    nodes_rx: Receiver < Vec < NodeHost > >,
-
-    introduce_tx: Sender < String >,
+    tx: Sender < Command >,
+    rx: Receiver < CommandResponse >,
 }
 
 struct NodeServiceContact {
-    state_rx: Receiver < Option < State > >,
-    state_tx: Sender < State >,
+    tx: Sender < CommandResponse >,
+    rx: Receiver < Command >,
+}
 
-    leader_rx: Receiver < Option < String > >,
-    leader_tx: Sender < Option < NodeHost > >,
 
-    exit_rx: Receiver < int >,
+enum Command {
+    Introduce(String),
 
-    nodes_tx: Sender < Vec < NodeHost > >,
-    nodes_rx: Receiver < int >,
+    FetchNodes,
 
-    introduce_rx: Receiver < String >,
+    AssignLeader(Option < NodeHost >),
+    FetchLeader,
+
+    AssignState(State),
+    FetchState,
+
+    ExitCommand,
+}
+
+enum CommandResponse {
+    FetchedLeader(Option < NodeHost >),
+
+    FetchedState(State),
+
+    FetchedNodes(Vec < NodeHost >),
 }
 
 impl Node {
@@ -69,38 +72,53 @@ impl Node {
     }
 
     pub fn state(&self) -> State {
-        self.contact().state_tx.send(None);
-        self.contact().state_rx.recv()
+        self.contact().tx.send(FetchState);
+        match self.contact().rx.recv() {
+            FetchedState(state) => state,
+            _ => unreachable!(),
+        }
     }
 
     pub fn forced_state(&self, state: State) -> State {
-        self.contact().state_tx.send(Some(state));
-        self.contact().state_rx.recv()
+        self.contact().tx.send(AssignState(state));
+        match self.contact().rx.recv() {
+            FetchedState(state) => state,
+            _ => unreachable!(),
+        }
     }
 
     pub fn fetch_leader(&self) -> Option < NodeHost > {
-        self.contact().leader_tx.send(None);
-        self.contact().leader_rx.recv()
+        self.contact().tx.send(FetchLeader);
+        match self.contact().rx.recv() {
+            FetchedLeader(leader) => leader,
+            _ => unreachable!(),
+        }
     }
 
     pub fn force_follow(&self, host: &str) -> Option < NodeHost > {
         self.forced_state(Follower);
 
-        self.contact().leader_tx.send(Some(host.to_string()));
-        self.contact().leader_rx.recv()
+        self.contact().tx.send(AssignLeader(Some(NodeHost { host: host.to_string() })));
+        match self.contact().rx.recv() {
+            FetchedLeader(leader) => leader,
+            _ => unreachable!(),
+        }
     }
 
     pub fn introduce(&self, host: &str) {
-        self.contact().introduce_tx.send(host.to_string());
+        self.contact().tx.send(Introduce(host.to_string()));
     }
 
     pub fn fetch_nodes(&self) -> Vec < NodeHost > {
-        self.contact().nodes_tx.send(0);
-        self.contact().nodes_rx.recv()
+        self.contact().tx.send(FetchNodes);
+        match self.contact().rx.recv() {
+            FetchedNodes(nodes) => nodes,
+            _ => unreachable!(),
+        }
     }
 
     pub fn stop(&self) {
-        self.contact().exit_tx.send(0);
+        self.contact().tx.send(ExitCommand);
     }
 
     pub fn start(&mut self, host: &str, intercommunication: &mut Intercommunication) {
@@ -125,109 +143,33 @@ impl Node {
 }
 
 impl NodeService {
+    fn new(host: String, service_contact: NodeServiceContact, comm: Endpoint) -> NodeService {
+        NodeService {
+            state: Follower,
+            my_host: NodeHost { host: host.clone() },
+            leader_host: None,
+
+            contact: service_contact,
+            nodes: vec![NodeHost { host: host.clone() }],
+
+            comm: comm,
+        }
+    }
+
     fn start_service(host: String, intercommunication: &mut Intercommunication) -> NodeContact {
-        let (state_tx, service_state_rx) = channel();
-        let (service_state_tx, state_rx) = channel();
-
-        let (leader_tx, service_leader_rx) = channel();
-        let (service_leader_tx, leader_rx) = channel();
-
-        let (exit_tx, service_exit_rx) = channel();
-
-        let (nodes_tx, service_nodes_rx) = channel();
-        let (service_nodes_tx, nodes_rx) = channel();
-
-        let (introduce_tx, service_introduce_rx) = channel();
-
-        let contact = NodeContact {
-            state_tx: state_tx,
-            state_rx: state_rx,
-
-            leader_tx: leader_tx,
-            leader_rx: leader_rx,
-
-            exit_tx: exit_tx,
-
-            nodes_tx: nodes_tx,
-            nodes_rx: nodes_rx,
-
-            introduce_tx: introduce_tx,
-        };
-
-        let service_contact = NodeServiceContact {
-            state_rx: service_state_rx,
-            state_tx: service_state_tx,
-
-            leader_rx: service_leader_rx,
-            leader_tx: service_leader_tx,
-
-            exit_rx: service_exit_rx,
-
-            nodes_tx: service_nodes_tx,
-            nodes_rx: service_nodes_rx,
-
-            introduce_rx: service_introduce_rx,
-        };
+        let (contact, service_contact) = NodeService::channels();
 
         let mut comm = intercommunication.register(host.clone());
 
         spawn(proc() {
-            let (send_ack_tx, send_ack_rx) = channel();
-
-            let mut me = NodeService {
-                state: Follower,
-                my_host: NodeHost { host: host.clone() },
-                leader_host: None,
-
-                contact: service_contact,
-                nodes: vec![NodeHost { host: host.clone() }],
-
-                comm: comm,
-            };
+            let mut me = NodeService::new(host, service_contact, comm);
 
             let mut dead = false;
 
             while !dead {
-                dead = dead || me.try_serve_state(|new_state| {});
+                dead = dead || me.react_to_commands();
 
-                dead = dead || me.try_serve_leader(|new_leader| {
-                    send_ack_tx.send(new_leader.host);
-                });
-
-                dead = dead || me.try_serve_nodes();
-                dead = dead || me.exit_if_asked();
-
-                match me.contact.introduce_rx.try_recv() {
-                    Ok(host) => {
-                        me.comm.send(host.clone(), Ack);
-                        me.comm.send(host, LeaderQuery);
-                    },
-                    _ => ()
-                }
-
-                match send_ack_rx.try_recv() {
-                    Ok(host) => me.comm.send(host, Ack),
-                    _ => ()
-                }
-
-                match me.comm.listen() {
-                    Some(Pack(from, _, Ack)) => me.nodes.push(NodeHost { host: from }),
-                    Some(Pack(from, _, LeaderQuery)) => {
-                        let leader_host = match me.leader_host {
-                            Some(NodeHost { ref host }) => Some(host.clone()),
-                            None => None,
-                        };
-
-                        me.comm.send(from, LeaderQueryResponse(leader_host));
-                    },
-                    Some(Pack(_, _, LeaderQueryResponse(leader_host))) => {
-                        match leader_host {
-                            Some(host) => me.comm.send(host, Ack),
-                            None => (),
-                        }
-                    },
-                    None => ()
-                }
+                me.react_to_intercommunication();
 
                 sleep(Duration::milliseconds(10));
             }
@@ -236,60 +178,75 @@ impl NodeService {
         contact
     }
 
-    fn try_serve_nodes(&mut self) -> bool {
-        match self.contact.nodes_rx.try_recv() {
-            Ok(_) => {
-                self.contact.nodes_tx.send(self.nodes.clone());
-                false
+    fn channels() -> (NodeContact, NodeServiceContact) {
+        let (tx, service_rx) = channel();
+        let (service_tx, rx) = channel();
+
+        let contact = NodeContact {
+            tx: tx,
+            rx: rx,
+        };
+
+        let service_contact = NodeServiceContact {
+            tx: service_tx,
+            rx: service_rx,
+        };
+
+        (contact, service_contact)
+    }
+
+    fn react_to_commands(&mut self) -> bool {
+        let mut dead = false;
+
+        match self.contact.rx.try_recv() {
+            Ok(FetchState) => self.contact.tx.send(FetchedState(self.state)),
+            Ok(AssignState(state)) => {
+                self.state = state;
+                self.contact.tx.send(FetchedState(self.state));
             },
-            Err(err) if err == Disconnected => true,
-            _ => false
-        }
-    }
 
-    fn try_serve_state(&mut self, f: |State| -> ()) -> bool {
-        let received = self.contact.state_rx.try_recv();
-
-        self.try_serve(
-            received,
-            |ref mut me, value| { me.state = value; f(me.state.clone()); },
-            |ref me| { me.contact.state_tx.send(me.state.clone()); }
-            )
-    }
-
-    fn try_serve_leader(&mut self, f: |NodeHost| -> ()) -> bool {
-        let received = self.contact.leader_rx.try_recv();
-
-        self.try_serve(
-            received,
-            |ref mut me, value| {
-                me.leader_host = Some(NodeHost { host: value.clone() });
-                f(NodeHost { host: value });
-            },
-            |ref me| { me.contact.leader_tx.send(me.leader_host.clone()); }
-            )
-    }
-
-    fn try_serve < T > (&mut self, received: Result < Option < T >, TryRecvError >, change: |&mut NodeService, T| -> (), respond: |&NodeService| -> ()) -> bool {
-        match received {
-            Ok(value) => {
-                match value {
-                    Some(value) => change(self, value),
-                    _ => {},
+            Ok(FetchLeader) => self.contact.tx.send(FetchedLeader(self.leader_host.clone())),
+            Ok(AssignLeader(leader)) => {
+                self.leader_host = leader.clone();
+                match leader {
+                    Some(leader) => self.comm.send(leader.host, Ack),
+                    None => (),
                 }
-
-                respond(self);
-                false
+                self.contact.tx.send(FetchedLeader(self.leader_host.clone()));
             },
-            Err(err) if err == Disconnected => true,
-            _ => false
+
+            Ok(FetchNodes) => self.contact.tx.send(FetchedNodes(self.nodes.clone())),
+
+            Ok(ExitCommand) => dead = true,
+
+            Ok(Introduce(host)) => self.comm.send(host, LeaderQuery),
+
+            Err(Disconnected) => dead = true,
+
+            Err(_) => (),
         }
+
+        dead
     }
 
-    fn exit_if_asked(&self) -> bool {
-        match self.contact.exit_rx.try_recv() {
-            Ok(_) => true,
-            _ => false
+    fn react_to_intercommunication(&mut self) {
+        match self.comm.listen() {
+            Some(Pack(from, _, Ack)) => self.nodes.push(NodeHost { host: from }),
+            Some(Pack(from, _, LeaderQuery)) => {
+                let leader_host = match self.leader_host {
+                    Some(NodeHost { ref host }) => Some(host.clone()),
+                    None => None,
+                };
+
+                self.comm.send(from, LeaderQueryResponse(leader_host));
+            },
+            Some(Pack(_, _, LeaderQueryResponse(leader_host))) => {
+                match leader_host {
+                    Some(host) => self.comm.send(host, Ack),
+                    None => (),
+                }
+            },
+            None => ()
         }
     }
 }
