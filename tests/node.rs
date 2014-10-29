@@ -166,7 +166,6 @@ mod who_is_the_leader {
             let nodes = leader.fetch_nodes();
             let node_hosts: Vec < &str > = nodes.iter().map(|x| { x.host.as_slice() }).collect();
             assert!(node_hosts.contains(&"leader"));
-            // PENDING
             assert!(node_hosts.contains(&"john"));
             assert!(node_hosts.contains(&"sarah"));
             assert!(node_hosts.contains(&"james"));
@@ -199,6 +198,38 @@ mod who_is_the_leader {
             helpers::sleep_ms(100);
 
             let nodes = leader.fetch_nodes();
+            let node_hosts: Vec < &str > = nodes.iter().map(|x| { x.host.as_slice() }).collect();
+            assert!(node_hosts.contains(&"leader"));
+            assert!(node_hosts.contains(&"john"));
+            assert!(node_hosts.contains(&"sarah"));
+
+            follower_1.stop();
+            node.stop();
+            leader.stop();
+
+            sig
+        })
+    }
+
+    #[test]
+    fn leader_propagates_node_list_changes_to_its_followers() {
+        let mut leader = helpers::node();
+        let mut follower_1 = helpers::node();
+        let mut node = helpers::node();
+
+        helpers::with_proper_comm(|mut comm| {
+            leader.start("leader", &mut comm);
+            follower_1.start("john", &mut comm);
+            node.start("sarah", &mut comm);
+
+            let sig = helpers::start_comm(comm);
+
+            follower_1.force_follow("leader");
+            node.introduce("john");
+
+            helpers::sleep_ms(100);
+
+            let nodes = follower_1.fetch_nodes();
             let node_hosts: Vec < &str > = nodes.iter().map(|x| { x.host.as_slice() }).collect();
             assert!(node_hosts.contains(&"leader"));
             assert!(node_hosts.contains(&"john"));

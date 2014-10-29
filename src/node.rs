@@ -4,7 +4,9 @@ use std::comm::{Disconnected, TryRecvError};
 
 use std::sync::{Arc, Mutex};
 
-use super::intercommunication::{Intercommunication, Ack, LeaderQuery, LeaderQueryResponse, Pack, Endpoint};
+use std::task::TaskBuilder;
+
+use super::intercommunication::{Intercommunication, Ack, LeaderQuery, LeaderQueryResponse, Pack, Endpoint, AppendQuery, AppendLog};
 
 #[deriving(Clone,Show,PartialEq)]
 pub enum State {
@@ -161,7 +163,7 @@ impl NodeService {
 
         let mut comm = intercommunication.register(host.clone());
 
-        spawn(proc() {
+        TaskBuilder::new().named(format!("{}-service", host)).spawn(proc() {
             let mut me = NodeService::new(host, service_contact, comm);
 
             let mut dead = false;
@@ -231,7 +233,15 @@ impl NodeService {
 
     fn react_to_intercommunication(&mut self) {
         match self.comm.listen() {
-            Some(Pack(from, _, Ack)) => self.nodes.push(NodeHost { host: from }),
+            Some(Pack(from, _, Ack)) => {
+                self.nodes.push(NodeHost { host: from });
+
+                let updated_node_list = self.nodes.clone();
+
+                self.send_append_log(AppendLog {
+                    node_list: updated_node_list.iter().map(|x| { x.clone().host }).collect(),
+                });
+            },
             Some(Pack(from, _, LeaderQuery)) => {
                 let leader_host = match self.leader_host {
                     Some(NodeHost { ref host }) => Some(host.clone()),
@@ -246,7 +256,18 @@ impl NodeService {
                     None => (),
                 }
             },
+            Some(Pack(_, _, AppendQuery(log))) => {
+                self.nodes = log.node_list.iter().map(|x| { NodeHost { host: x.clone() } }).collect();
+            },
             None => ()
+        }
+    }
+
+    fn send_append_log(&mut self, log: AppendLog) {
+        for node in self.nodes.iter() {
+            if node.host != self.my_host.host {
+                self.comm.send(node.host.clone(), AppendQuery(log.clone()));
+            }
         }
     }
 }

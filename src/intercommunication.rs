@@ -5,6 +5,8 @@ use std::comm::{Disconnected, TryRecvError};
 
 use std::sync::{Arc, Mutex};
 
+use std::task::TaskBuilder;
+
 pub trait Intercommunication {
     fn new() -> Self;
     fn register(&mut self, host: String) -> Endpoint;
@@ -22,6 +24,11 @@ pub struct Endpoint {
     host: String,
     tx: Sender < Package >,
     rx: Receiver < Package >,
+}
+
+#[deriving(Clone)]
+pub struct AppendLog {
+    pub node_list: Vec < String >,
 }
 
 impl Intercommunication for DefaultIntercommunication {
@@ -99,6 +106,9 @@ pub enum PackageDetails {
 
     // LeaderQueryResponse(leader_host)
     LeaderQueryResponse(Option < String >),
+
+    // AppendQuery(log)
+    AppendQuery(AppendLog),
 }
 
 pub enum Package {
@@ -110,7 +120,7 @@ pub fn start < T: Intercommunication + Send >(intercommunication: T) -> Sender <
     let mutex = Arc::new(Mutex::new(intercommunication));
     let (exit_tx, exit_rx) = channel();
 
-    spawn(proc() {
+    TaskBuilder::new().named("intercommunication").spawn(proc() {
         loop {
             let mut intercommunication = mutex.lock();
 
