@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use std::task::TaskBuilder;
 
-use super::intercommunication::{Intercommunication, Ack, LeaderQuery, LeaderQueryResponse, Pack, Endpoint, AppendQuery, AppendLog};
+use super::intercommunication::{Intercommunication, Ack, LeaderQuery, LeaderQueryResponse, Pack, Endpoint, AppendQuery, AppendLog, RequestVote, Vote};
 
 #[deriving(Clone,Show,PartialEq)]
 pub enum State {
@@ -37,6 +37,9 @@ struct NodeService {
     comm: Endpoint,
 
     last_append_log_seen_at: time::Timespec,
+    term: uint,
+    votes: uint,
+    already_requested: bool,
 }
 
 struct NodeContact {
@@ -159,7 +162,11 @@ impl NodeService {
             nodes: vec![NodeHost { host: host.clone() }],
 
             comm: comm,
+
             last_append_log_seen_at: time::now().to_timespec(),
+            term: 0,
+            votes: 0,
+            already_requested: false,
         }
     }
 
@@ -228,7 +235,10 @@ impl NodeService {
 
             Ok(ExitCommand) => dead = true,
 
-            Ok(Introduce(host)) => self.comm.send(host, LeaderQuery),
+            Ok(Introduce(host)) => {
+                self.comm.send(host.clone(), Ack);
+                self.comm.send(host, LeaderQuery);
+            },
 
             Err(Disconnected) => dead = true,
 
@@ -257,11 +267,27 @@ impl NodeService {
                     None => (),
                 }
             },
-            Some(Pack(_, _, AppendQuery(log))) => {
+            Some(Pack(leader, _, AppendQuery(log))) => {
                 self.nodes = log.node_list.iter().map(|x| { NodeHost { host: x.clone() } }).collect();
                 self.last_append_log_seen_at = time::now().to_timespec();
+                self.leader_host = Some(NodeHost { host: leader });
             },
-            None => ()
+            Some(Pack(candidate, _, RequestVote(term))) => {
+                if term > self.term && self.state == Follower {
+                    self.term = term;
+                    self.votes = 0;
+                    self.comm.send(candidate, Vote(term));
+                }
+            },
+            Some(Pack(_, _, Vote(term))) => {
+                if term == self.term && self.state == Candidate {
+                    self.votes += 1;
+                    if self.votes > self.nodes.len() / 2 {
+                        self.state = Leader;
+                    }
+                }
+            },
+            None => (),
         }
     }
 
@@ -285,12 +311,26 @@ impl NodeService {
             Follower => {
                 if passed > Duration::milliseconds(300) {
                     self.state = Candidate;
+                    self.votes = 0;
+                    self.already_requested = false;
+                    self.last_append_log_seen_at = time::now().to_timespec();
+                }
+            },
+            Candidate => {
+                if !self.already_requested {
+                    self.already_requested = true;
+                    self.term += 1;
+
+                    for node in self.nodes.iter() {
+                        if node.host != self.my_host.host {
+                            self.comm.send(node.host.clone(), RequestVote(self.term));
+                        }
+                    }
                 }
             },
             Leader => {
                 self.send_append_log();
             },
-            _ => ()
         }
     }
 }

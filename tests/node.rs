@@ -298,4 +298,42 @@ mod election {
         })
     }
 
+    #[test]
+    fn candidate_votes_for_himself_and_asks_other_nodes_for_votes() {
+        let mut node_1 = helpers::node();
+        let mut node_2 = helpers::node();
+        let mut node_3 = helpers::node();
+
+        helpers::with_proper_comm(|mut comm| {
+            node_1.start("john", &mut comm);
+            node_2.start("duck", &mut comm);
+            node_3.start("sarah", &mut comm);
+
+            let sig = helpers::start_comm(comm);
+
+            node_1.introduce("duck");
+            node_3.introduce("duck");
+
+            helpers::sleep_ms(100);
+
+            node_1.forced_state(Follower);
+            node_2.forced_state(Candidate);
+            node_3.forced_state(Follower);
+
+            helpers::sleep_ms(250);
+
+            let state = node_2.state();
+            assert_eq!(Leader, state);
+
+            let leader = node_1.fetch_leader();
+            assert_eq!("duck".to_string(), leader.unwrap().host);
+
+            node_1.stop();
+            node_2.stop();
+            node_3.stop();
+
+            sig
+        })
+    }
+
 }

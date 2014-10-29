@@ -12,12 +12,15 @@ pub trait Intercommunication {
     fn register(&mut self, host: String) -> Endpoint;
     fn receive(&mut self) -> Option < Package >;
     fn send(&mut self, recipient: String, package: Package);
+    fn is_debug(&self) -> bool;
 }
 
 pub struct DefaultIntercommunication {
     receiver: Receiver < Package >,
     sender: Sender < Package >,
     senders: HashMap < String, Sender < Package > >,
+
+    pub is_debug: bool,
 }
 
 pub struct Endpoint {
@@ -26,7 +29,7 @@ pub struct Endpoint {
     rx: Receiver < Package >,
 }
 
-#[deriving(Clone)]
+#[deriving(Clone, Show)]
 pub struct AppendLog {
     pub node_list: Vec < String >,
 }
@@ -39,6 +42,7 @@ impl Intercommunication for DefaultIntercommunication {
             senders: HashMap::new(),
             sender: tx,
             receiver: rx,
+            is_debug: false,
         }
     }
 
@@ -69,6 +73,10 @@ impl Intercommunication for DefaultIntercommunication {
             None => (),
         }
     }
+
+    fn is_debug(&self) -> bool {
+        self.is_debug
+    }
 }
 
 impl Endpoint {
@@ -97,11 +105,10 @@ impl Endpoint {
     }
 }
 
+#[deriving(Show)]
 pub enum PackageDetails {
-    // Ack
     Ack,
 
-    // LeaderQuery
     LeaderQuery,
 
     // LeaderQueryResponse(leader_host)
@@ -109,6 +116,12 @@ pub enum PackageDetails {
 
     // AppendQuery(log)
     AppendQuery(AppendLog),
+
+    // RequestVote(term
+    RequestVote(uint),
+
+    // Vote(term)
+    Vote(uint),
 }
 
 pub enum Package {
@@ -126,6 +139,10 @@ pub fn start < T: Intercommunication + Send >(intercommunication: T) -> Sender <
 
             match intercommunication.receive() {
                 Some(Pack(from, to, package)) => {
+                    if intercommunication.is_debug() {
+                        println!("sent package {} to host {} from {}", package, to, from);
+                    }
+
                     intercommunication.send(to.clone(), Pack(from, to, package));
                 },
                 None => ()
