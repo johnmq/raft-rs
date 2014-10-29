@@ -1,3 +1,5 @@
+extern crate time;
+
 use std::io::timer::sleep;
 use std::time::duration::Duration;
 use std::comm::{Disconnected, TryRecvError};
@@ -33,6 +35,8 @@ struct NodeService {
     nodes: Vec < NodeHost >,
 
     comm: Endpoint,
+
+    last_append_log_seen_at: time::Timespec,
 }
 
 struct NodeContact {
@@ -155,6 +159,7 @@ impl NodeService {
             nodes: vec![NodeHost { host: host.clone() }],
 
             comm: comm,
+            last_append_log_seen_at: time::now().to_timespec(),
         }
     }
 
@@ -172,6 +177,8 @@ impl NodeService {
                 dead = dead || me.react_to_commands();
 
                 me.react_to_intercommunication();
+
+                me.election_handler();
 
                 sleep(Duration::milliseconds(10));
             }
@@ -235,12 +242,6 @@ impl NodeService {
         match self.comm.listen() {
             Some(Pack(from, _, Ack)) => {
                 self.nodes.push(NodeHost { host: from });
-
-                let updated_node_list = self.nodes.clone();
-
-                self.send_append_log(AppendLog {
-                    node_list: updated_node_list.iter().map(|x| { x.clone().host }).collect(),
-                });
             },
             Some(Pack(from, _, LeaderQuery)) => {
                 let leader_host = match self.leader_host {
@@ -258,16 +259,38 @@ impl NodeService {
             },
             Some(Pack(_, _, AppendQuery(log))) => {
                 self.nodes = log.node_list.iter().map(|x| { NodeHost { host: x.clone() } }).collect();
+                self.last_append_log_seen_at = time::now().to_timespec();
             },
             None => ()
         }
     }
 
-    fn send_append_log(&mut self, log: AppendLog) {
+    fn send_append_log(&mut self) {
+        let node_list = self.nodes.clone();
+        let log = AppendLog {
+            node_list: node_list.iter().map(|x| { x.host.clone() }).collect(),
+        };
+
         for node in self.nodes.iter() {
             if node.host != self.my_host.host {
                 self.comm.send(node.host.clone(), AppendQuery(log.clone()));
             }
+        }
+    }
+
+    fn election_handler(&mut self) {
+        let passed = time::now().to_timespec() - self.last_append_log_seen_at;
+
+        match self.state {
+            Follower => {
+                if passed > Duration::milliseconds(300) {
+                    self.state = Candidate;
+                }
+            },
+            Leader => {
+                self.send_append_log();
+            },
+            _ => ()
         }
     }
 }

@@ -95,9 +95,10 @@ mod a_node_can_be_in_one_of_the_states {
 
 }
 
-mod who_is_the_leader {
+mod discovery {
 
     use helpers;
+    use raft_rs::node::{Leader};
 
     #[test]
     fn nothing_if_no_leader() {
@@ -134,8 +135,8 @@ mod who_is_the_leader {
 
             assert_eq!("leader", node.fetch_leader().unwrap().host.as_slice());
 
-            node.stop();
             leader.stop();
+            node.stop();
 
             sig
         })
@@ -170,10 +171,10 @@ mod who_is_the_leader {
             assert!(node_hosts.contains(&"sarah"));
             assert!(node_hosts.contains(&"james"));
 
+            leader.stop();
             follower_1.stop();
             follower_2.stop();
             follower_3.stop();
-            leader.stop();
 
             sig
         })
@@ -203,9 +204,9 @@ mod who_is_the_leader {
             assert!(node_hosts.contains(&"john"));
             assert!(node_hosts.contains(&"sarah"));
 
+            leader.stop();
             follower_1.stop();
             node.stop();
-            leader.stop();
 
             sig
         })
@@ -224,10 +225,11 @@ mod who_is_the_leader {
 
             let sig = helpers::start_comm(comm);
 
+            leader.forced_state(Leader);
             follower_1.force_follow("leader");
             node.introduce("john");
 
-            helpers::sleep_ms(100);
+            helpers::sleep_ms(200);
 
             let nodes = follower_1.fetch_nodes();
             let node_hosts: Vec < &str > = nodes.iter().map(|x| { x.host.as_slice() }).collect();
@@ -235,9 +237,62 @@ mod who_is_the_leader {
             assert!(node_hosts.contains(&"john"));
             assert!(node_hosts.contains(&"sarah"));
 
+            leader.stop();
             follower_1.stop();
             node.stop();
+
+            sig
+        })
+    }
+
+}
+
+mod election {
+
+    use helpers;
+    use raft_rs::node::{Candidate, Leader, Follower};
+
+    #[test]
+    fn follower_not_getting_append_logs_becomes_candidate() {
+        let mut node = helpers::node();
+
+        helpers::with_proper_comm(|mut comm| {
+            node.start("john", &mut comm);
+
+            let sig = helpers::start_comm(comm);
+
+            helpers::sleep_ms(350);
+
+            let state = node.state();
+            assert_eq!(Candidate, state);
+
+            node.stop();
+
+            sig
+        })
+    }
+
+    #[test]
+    fn follower_getting_append_logs_stays_being_follower() {
+        let mut leader = helpers::node();
+        let mut node = helpers::node();
+
+        helpers::with_proper_comm(|mut comm| {
+            leader.start("leader", &mut comm);
+            node.start("john", &mut comm);
+
+            let sig = helpers::start_comm(comm);
+
+            leader.forced_state(Leader);
+            node.force_follow("leader");
+
+            helpers::sleep_ms(350);
+
+            let state = node.state();
+            assert_eq!(Follower, state);
+
             leader.stop();
+            node.stop();
 
             sig
         })
