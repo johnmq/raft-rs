@@ -264,7 +264,7 @@ mod election {
             helpers::sleep_ms(350);
 
             let state = node.state();
-            assert_eq!(Candidate, state);
+            assert!(Candidate == state || Leader == state);
 
             node.stop();
 
@@ -414,6 +414,26 @@ mod election {
             node_1.stop();
             node_2.stop();
             node_3.stop();
+
+            sig
+        })
+    }
+
+    #[test]
+    fn one_node_in_a_cluster_becomes_leader() {
+        let mut node = helpers::node();
+
+        helpers::with_proper_comm(|mut comm| {
+            node.start("john", &mut comm);
+
+            let sig = helpers::start_comm(comm);
+
+            helpers::sleep_ms(350);
+
+            let state = node.state();
+            assert_eq!(Leader, state);
+
+            node.stop();
 
             sig
         })

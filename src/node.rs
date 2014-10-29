@@ -315,7 +315,6 @@ impl NodeService {
         match self.state {
             Follower => {
                 if passed > duration {
-                    println!("Passed duration: {}", ms);
                     self.state = Candidate;
                     self.votes = 0;
                     self.already_requested = false;
@@ -333,10 +332,10 @@ impl NodeService {
                     self.already_requested = true;
                     self.term += 1;
 
+                    self.comm.send(self.my_host.host.clone(), Vote(self.term));
+
                     for node in self.nodes.iter() {
-                        if node.host != self.my_host.host {
-                            self.comm.send(node.host.clone(), RequestVote(self.term));
-                        }
+                        self.comm.send(node.host.clone(), RequestVote(self.term));
                     }
                 }
             },
