@@ -8,20 +8,20 @@ use std::sync::{Arc, Mutex};
 pub trait Intercommunication {
     fn new() -> Self;
     fn register(&mut self, host: String) -> Endpoint;
-    fn receive(&mut self) -> Option < DumbPackage >;
-    fn send(&mut self, recipient: String, package: DumbPackage);
+    fn receive(&mut self) -> Option < Package >;
+    fn send(&mut self, recipient: String, package: Package);
 }
 
 pub struct DefaultIntercommunication {
-    receiver: Receiver < DumbPackage >,
-    sender: Sender < DumbPackage >,
-    senders: HashMap < String, Sender < DumbPackage > >,
+    receiver: Receiver < Package >,
+    sender: Sender < Package >,
+    senders: HashMap < String, Sender < Package > >,
 }
 
 pub struct Endpoint {
     host: String,
-    tx: Sender < DumbPackage >,
-    rx: Receiver < DumbPackage >,
+    tx: Sender < Package >,
+    rx: Receiver < Package >,
 }
 
 impl Intercommunication for DefaultIntercommunication {
@@ -47,38 +47,29 @@ impl Intercommunication for DefaultIntercommunication {
         }
     }
 
-    fn receive(&mut self) -> Option < DumbPackage > {
+    fn receive(&mut self) -> Option < Package > {
         match self.receiver.try_recv() {
             Ok(package) => Some(package),
             _ => None,
         }
     }
 
-    fn send(&mut self, recipient: String, package: DumbPackage) {
+    fn send(&mut self, recipient: String, package: Package) {
         match self.senders.find(&recipient) {
             Some(tx) => {
-                println!("Sent package to {}", recipient);
                 tx.send(package);
             },
-            None => println!("Unable to find recipient :("),
+            None => (),
         }
     }
 }
 
 impl Endpoint {
-    pub fn send_ack_to(&self, host: String) {
-        self.tx.send(Ack(self.host.clone(), host));
+    pub fn send(&self, host: String, package: PackageDetails) {
+        self.tx.send(Pack(self.host.clone(), host, package));
     }
 
-    pub fn send_leader_query_to(&self, host: String) {
-        self.tx.send(LeaderQuery(self.host.clone(), host));
-    }
-
-    pub fn send_leader_query_response_to(&self, host: String, leader_host: Option < String >) {
-        self.tx.send(LeaderQueryResponse(self.host.clone(), host, leader_host));
-    }
-
-    pub fn listen_block_with_timeout(&self) -> Option < DumbPackage > {
+    pub fn listen_block_with_timeout(&self) -> Option < Package > {
         for _ in range(0, 10u) {
             match self.listen() {
                 Some(x) => return Some(x),
@@ -91,7 +82,7 @@ impl Endpoint {
         None
     }
 
-    pub fn listen(&self) -> Option < DumbPackage > {
+    pub fn listen(&self) -> Option < Package > {
         match self.rx.try_recv() {
             Ok(result) => Some(result),
             _ => None,
@@ -99,15 +90,20 @@ impl Endpoint {
     }
 }
 
-pub enum DumbPackage {
-    // Ack("sender host", "recipient host")
-    Ack(String, String),
+pub enum PackageDetails {
+    // Ack
+    Ack,
 
-    // LeaderQuery("requester", "responder")
-    LeaderQuery(String, String),
+    // LeaderQuery
+    LeaderQuery,
 
-    // LeaderQueryResponse("responder", "requester", "leader_host")
-    LeaderQueryResponse(String, String, Option < String >),
+    // LeaderQueryResponse(leader_host)
+    LeaderQueryResponse(Option < String >),
+}
+
+pub enum Package {
+    // Pack(from, to, package)
+    Pack(String, String, PackageDetails),
 }
 
 pub fn start < T: Intercommunication + Send >(intercommunication: T) -> Sender < int > {
@@ -118,20 +114,9 @@ pub fn start < T: Intercommunication + Send >(intercommunication: T) -> Sender <
         loop {
             let mut intercommunication = mutex.lock();
 
-            println!("waiting...");
             match intercommunication.receive() {
-                Some(Ack(sender, recipient)) => {
-                    println!("got something!");
-                    intercommunication.send(recipient.clone(), Ack(sender.clone(), recipient))
-                },
-                Some(LeaderQuery(requester, responder)) => {
-                    intercommunication.send(responder.clone(), LeaderQuery(requester.clone(), responder))
-                },
-                Some(LeaderQueryResponse(responder, requester, leader_host)) => {
-                    intercommunication.send(
-                        requester.clone(),
-                        LeaderQueryResponse(responder, requester, leader_host),
-                        );
+                Some(Pack(from, to, package)) => {
+                    intercommunication.send(to.clone(), Pack(from, to, package));
                 },
                 None => ()
             }

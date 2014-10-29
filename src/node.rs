@@ -4,7 +4,7 @@ use std::comm::{Disconnected, TryRecvError};
 
 use std::sync::{Arc, Mutex};
 
-use super::intercommunication::{Intercommunication, Ack, LeaderQuery, LeaderQueryResponse, Endpoint};
+use super::intercommunication::{Intercommunication, Ack, LeaderQuery, LeaderQueryResponse, Pack, Endpoint};
 
 #[deriving(Clone,Show,PartialEq)]
 pub enum State {
@@ -199,30 +199,30 @@ impl NodeService {
 
                 match me.contact.introduce_rx.try_recv() {
                     Ok(host) => {
-                        me.comm.send_ack_to(host.clone());
-                        me.comm.send_leader_query_to(host);
+                        me.comm.send(host.clone(), Ack);
+                        me.comm.send(host, LeaderQuery);
                     },
                     _ => ()
                 }
 
                 match send_ack_rx.try_recv() {
-                    Ok(host) => me.comm.send_ack_to(host),
+                    Ok(host) => me.comm.send(host, Ack),
                     _ => ()
                 }
 
                 match me.comm.listen() {
-                    Some(Ack(from, _)) => me.nodes.push(NodeHost { host: from }),
-                    Some(LeaderQuery(from, _)) => {
+                    Some(Pack(from, _, Ack)) => me.nodes.push(NodeHost { host: from }),
+                    Some(Pack(from, _, LeaderQuery)) => {
                         let leader_host = match me.leader_host {
                             Some(NodeHost { ref host }) => Some(host.clone()),
                             None => None,
                         };
 
-                        me.comm.send_leader_query_response_to(from, leader_host);
+                        me.comm.send(from, LeaderQueryResponse(leader_host));
                     },
-                    Some(LeaderQueryResponse(_, _, leader_host)) => {
+                    Some(Pack(_, _, LeaderQueryResponse(leader_host))) => {
                         match leader_host {
-                            Some(host) => me.comm.send_ack_to(host),
+                            Some(host) => me.comm.send(host, Ack),
                             None => (),
                         }
                     },

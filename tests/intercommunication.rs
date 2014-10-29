@@ -6,7 +6,7 @@ mod using_dumb_network {
     use std::io::timer::sleep;
     use std::time::duration::Duration;
 
-    use raft_rs::intercommunication::{Intercommunication, DefaultIntercommunication, DumbPackage, Ack, start};
+    use raft_rs::intercommunication::{Intercommunication, DefaultIntercommunication, Package, Ack, Pack, start};
 
     #[test]
     fn sending_simple_ack() {
@@ -17,10 +17,10 @@ mod using_dumb_network {
 
         let stop_comm = start(comm);
 
-        comm_1.send_ack_to("host_2".to_string());
+        comm_1.send("host_2".to_string(), Ack);
 
         match comm_2.listen_block_with_timeout() {
-            Some(Ack(from, to)) => {
+            Some(Pack(from, to, Ack)) => {
                 assert_eq!(from, "host_1".to_string());
                 assert_eq!(to, "host_2".to_string());
             },
