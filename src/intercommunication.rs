@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::io::timer::sleep;
 use std::time::duration::Duration;
-use std::comm::{Disconnected, TryRecvError};
+use std::comm::Disconnected;
 
 use std::sync::{Arc, Mutex};
 

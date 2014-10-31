@@ -2,9 +2,7 @@ extern crate time;
 
 use std::io::timer::sleep;
 use std::time::duration::Duration;
-use std::comm::{Disconnected, TryRecvError};
-
-use std::sync::{Arc, Mutex};
+use std::comm::Disconnected;
 
 use std::task::TaskBuilder;
 
@@ -132,7 +130,7 @@ impl Node {
         self.contact().tx.send(ExitCommand);
     }
 
-    pub fn start(&mut self, host: &str, intercommunication: &mut Intercommunication) {
+    pub fn start < T: Intercommunication >(&mut self, host: &str, intercommunication: &mut T) {
         match self.contact {
             Some(_) => {},
             None => self.contact = Some(NodeService::start_service(
@@ -147,7 +145,7 @@ impl Node {
     fn contact(&self) -> &NodeContact {
         match self.contact {
             Some(ref x) => x,
-            None => fail!("You forgot to start the node")
+            None => panic!("You forgot to start the node")
         }
     }
 
@@ -172,10 +170,10 @@ impl NodeService {
         }
     }
 
-    fn start_service(host: String, intercommunication: &mut Intercommunication) -> NodeContact {
+    fn start_service < T: Intercommunication >(host: String, intercommunication: &mut T) -> NodeContact {
         let (contact, service_contact) = NodeService::channels();
 
-        let mut comm = intercommunication.register(host.clone());
+        let comm = intercommunication.register(host.clone());
 
         TaskBuilder::new().named(format!("{}-service", host)).spawn(proc() {
             let mut me = NodeService::new(host, service_contact, comm);
