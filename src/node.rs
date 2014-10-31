@@ -2,9 +2,7 @@ extern crate time;
 
 use std::io::timer::sleep;
 use std::time::duration::Duration;
-use std::comm::{Disconnected, TryRecvError};
-
-use std::sync::{Arc, Mutex};
+use std::comm::Disconnected;
 
 use std::task::TaskBuilder;
 
@@ -147,7 +145,7 @@ impl Node {
     fn contact(&self) -> &NodeContact {
         match self.contact {
             Some(ref x) => x,
-            None => fail!("You forgot to start the node")
+            None => panic!("You forgot to start the node")
         }
     }
 
@@ -175,7 +173,7 @@ impl NodeService {
     fn start_service(host: String, intercommunication: &mut Intercommunication) -> NodeContact {
         let (contact, service_contact) = NodeService::channels();
 
-        let mut comm = intercommunication.register(host.clone());
+        let comm = intercommunication.register(host.clone());
 
         TaskBuilder::new().named(format!("{}-service", host)).spawn(proc() {
             let mut me = NodeService::new(host, service_contact, comm);
