@@ -130,7 +130,7 @@ impl Node {
         self.contact().tx.send(ExitCommand);
     }
 
-    pub fn start(&mut self, host: &str, intercommunication: &mut Intercommunication) {
+    pub fn start<T: Intercommunication>(&mut self, host: &str, intercommunication: &mut T) {
         match self.contact {
             Some(_) => {},
             None => self.contact = Some(NodeService::start_service(
@@ -170,7 +170,7 @@ impl NodeService {
         }
     }
 
-    fn start_service(host: String, intercommunication: &mut Intercommunication) -> NodeContact {
+    fn start_service < T: Intercommunication >(host: String, intercommunication: &mut T) -> NodeContact {
         let (contact, service_contact) = NodeService::channels();
 
         let comm = intercommunication.register(host.clone());
