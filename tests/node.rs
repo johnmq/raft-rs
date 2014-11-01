@@ -365,7 +365,7 @@ mod election {
             node_2.forced_state(Candidate);
             node_3.forced_state(Candidate);
 
-            helpers::sleep_ms(500);
+            helpers::sleep_ms(700);
 
             let states = vec![node_1.state(), node_2.state(), node_3.state()];
             assert!(states.contains(&Leader));
@@ -406,7 +406,7 @@ mod election {
             node_2.forced_state(Candidate);
             node_3.forced_state(Candidate);
 
-            helpers::sleep_ms(950);
+            helpers::sleep_ms(1150);
 
             let states = vec![node_1.state(), node_2.state(), node_3.state()];
             assert!(states.contains(&Leader));
