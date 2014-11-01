@@ -3,6 +3,7 @@ extern crate raft_rs;
 mod helpers {
     use raft_rs::node::{Node};
     use raft_rs::intercommunication::{DefaultIntercommunication, Intercommunication, start};
+    use raft_rs::replication::{DefaultReplicationLog, ReplicationLog};
 
     use std::io::timer::sleep;
     use std::time::duration::Duration;
@@ -31,6 +32,11 @@ mod helpers {
     pub fn sleep_ms(ms: i64) {
         sleep(Duration::milliseconds(ms));
     }
+
+    pub fn node_start(node: &mut Node, host: &str, comm: &mut DefaultIntercommunication) {
+        let log: DefaultReplicationLog = ReplicationLog::new();
+        node.start(host, comm, log);
+    }
 }
 
 mod a_node_can_be_in_one_of_the_states {
@@ -43,7 +49,7 @@ mod a_node_can_be_in_one_of_the_states {
         let mut node = helpers::node();
 
         helpers::with_proper_comm(|mut comm| {
-            node.start("john-follower", &mut comm);
+            helpers::node_start(&mut node, "john-follower", &mut comm);
 
             let sig = helpers::start_comm(comm);
 
@@ -60,7 +66,7 @@ mod a_node_can_be_in_one_of_the_states {
         let mut node = helpers::node();
 
         helpers::with_proper_comm(|mut comm| {
-            node.start("john-candidate", &mut comm);
+            helpers::node_start(&mut node, "john-candidate", &mut comm);
 
             let sig = helpers::start_comm(comm);
 
@@ -79,7 +85,7 @@ mod a_node_can_be_in_one_of_the_states {
         let mut node = helpers::node();
 
         helpers::with_proper_comm(|mut comm| {
-            node.start("john-leader", &mut comm);
+            helpers::node_start(&mut node, "john-leader", &mut comm);
 
             let sig = helpers::start_comm(comm);
 
@@ -106,8 +112,8 @@ mod discovery {
         let mut other = helpers::node();
 
         helpers::with_proper_comm(|mut comm| {
-            node.start("john", &mut comm);
-            other.start("sarah", &mut comm);
+            helpers::node_start(&mut node, "john", &mut comm);
+            helpers::node_start(&mut other, "sarah", &mut comm);
 
             let sig = helpers::start_comm(comm);
 
@@ -126,8 +132,8 @@ mod discovery {
         let mut node = helpers::node();
 
         helpers::with_proper_comm(|mut comm| {
-            leader.start("leader", &mut comm);
-            node.start("john", &mut comm);
+            helpers::node_start(&mut leader, "leader", &mut comm);
+            helpers::node_start(&mut node, "john", &mut comm);
 
             let sig = helpers::start_comm(comm);
 
@@ -151,10 +157,10 @@ mod discovery {
         let mut follower_3 = helpers::node();
 
         helpers::with_proper_comm(|mut comm| {
-            leader.start("leader", &mut comm);
-            follower_1.start("john", &mut comm);
-            follower_2.start("sarah", &mut comm);
-            follower_3.start("james", &mut comm);
+            helpers::node_start(&mut leader, "leader", &mut comm);
+            helpers::node_start(&mut follower_1, "john", &mut comm);
+            helpers::node_start(&mut follower_2, "sarah", &mut comm);
+            helpers::node_start(&mut follower_3, "james", &mut comm);
 
             let sig = helpers::start_comm(comm);
 
@@ -187,9 +193,9 @@ mod discovery {
         let mut node = helpers::node();
 
         helpers::with_proper_comm(|mut comm| {
-            leader.start("leader", &mut comm);
-            follower_1.start("john", &mut comm);
-            node.start("sarah", &mut comm);
+            helpers::node_start(&mut leader, "leader", &mut comm);
+            helpers::node_start(&mut follower_1, "john", &mut comm);
+            helpers::node_start(&mut node, "sarah", &mut comm);
 
             let sig = helpers::start_comm(comm);
 
@@ -219,9 +225,9 @@ mod discovery {
         let mut node = helpers::node();
 
         helpers::with_proper_comm(|mut comm| {
-            leader.start("leader", &mut comm);
-            follower_1.start("john", &mut comm);
-            node.start("sarah", &mut comm);
+            helpers::node_start(&mut leader, "leader", &mut comm);
+            helpers::node_start(&mut follower_1, "john", &mut comm);
+            helpers::node_start(&mut node, "sarah", &mut comm);
 
             let sig = helpers::start_comm(comm);
 
@@ -257,7 +263,7 @@ mod election {
         let mut node = helpers::node();
 
         helpers::with_proper_comm(|mut comm| {
-            node.start("john", &mut comm);
+            helpers::node_start(&mut node, "john", &mut comm);
 
             let sig = helpers::start_comm(comm);
 
@@ -278,8 +284,8 @@ mod election {
         let mut node = helpers::node();
 
         helpers::with_proper_comm(|mut comm| {
-            leader.start("leader", &mut comm);
-            node.start("john", &mut comm);
+            helpers::node_start(&mut leader, "leader", &mut comm);
+            helpers::node_start(&mut node, "john", &mut comm);
 
             let sig = helpers::start_comm(comm);
 
@@ -306,9 +312,9 @@ mod election {
         let mut node_3 = helpers::node();
 
         helpers::with_proper_comm(|mut comm| {
-            node_1.start("john", &mut comm);
-            node_2.start("duck", &mut comm);
-            node_3.start("sarah", &mut comm);
+            helpers::node_start(&mut node_1, "john", &mut comm);
+            helpers::node_start(&mut node_2, "duck", &mut comm);
+            helpers::node_start(&mut node_3, "sarah", &mut comm);
 
             let sig = helpers::start_comm(comm);
 
@@ -344,9 +350,9 @@ mod election {
         let mut node_3 = helpers::node();
 
         helpers::with_proper_comm(|mut comm| {
-            node_1.start("john", &mut comm);
-            node_2.start("duck", &mut comm);
-            node_3.start("sarah", &mut comm);
+            helpers::node_start(&mut node_1, "john", &mut comm);
+            helpers::node_start(&mut node_2, "duck", &mut comm);
+            helpers::node_start(&mut node_3, "sarah", &mut comm);
 
             let sig = helpers::start_comm(comm);
 
@@ -385,9 +391,9 @@ mod election {
         let mut node_3 = helpers::node();
 
         helpers::with_proper_comm(|mut comm| {
-            node_1.start("john", &mut comm);
-            node_2.start("duck", &mut comm);
-            node_3.start("sarah", &mut comm);
+            helpers::node_start(&mut node_1, "john", &mut comm);
+            helpers::node_start(&mut node_2, "duck", &mut comm);
+            helpers::node_start(&mut node_3, "sarah", &mut comm);
 
             let sig = helpers::start_comm(comm);
 
@@ -424,7 +430,7 @@ mod election {
         let mut node = helpers::node();
 
         helpers::with_proper_comm(|mut comm| {
-            node.start("john", &mut comm);
+            helpers::node_start(&mut node, "john", &mut comm);
 
             let sig = helpers::start_comm(comm);
 
@@ -434,6 +440,53 @@ mod election {
             assert_eq!(Leader, state);
 
             node.stop();
+
+            sig
+        })
+    }
+
+}
+
+mod replication {
+
+    use helpers;
+    use raft_rs::node::{Leader};
+    use raft_rs::replication::{DefaultReplicationLog, ReplicationLog, DefaultPersistence, DefaultCommandContainer, DefaultCommand};
+
+    #[test]
+    fn three_nodes_in_a_cluster_come_to_consensus_about_one_command() {
+        let mut node = helpers::node();
+        let mut follower_1 = helpers::node();
+        let mut follower_2 = helpers::node();
+
+        let (persist_tx_0, persist_rx_0) = DefaultPersistence::start();
+        let (persist_tx_1, persist_rx_1) = DefaultPersistence::start();
+        let (persist_tx_2, persist_rx_2) = DefaultPersistence::start();
+
+        helpers::with_proper_comm(|mut comm| {
+            helpers::node_start(&mut node, "leader", &mut comm);
+            helpers::node_start(&mut follower_1, "sarah", &mut comm);
+            helpers::node_start(&mut follower_2, "john", &mut comm);
+
+            node.forced_state(Leader);
+
+            follower_1.introduce("leader");
+            follower_2.introduce("leader");
+
+            let sig = helpers::start_comm(comm);
+
+            helpers::sleep_ms(350);
+
+            let state = node.state();
+            assert_eq!(Leader, state);
+
+            node.enqueue(DefaultCommandContainer { command: TestSet(2), tx: tx.clone() });
+            node.enqueue(DefaultCommandContainer { command: TestAdd(3), tx: tx.clone() });
+            node.enqueue(DefaultCommandContainer { command: TestSet(9), tx: tx.clone() });
+
+            node.stop();
+            follower_1.stop();
+            follower_2.stop();
 
             sig
         })

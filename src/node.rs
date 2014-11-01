@@ -9,6 +9,7 @@ use std::task::TaskBuilder;
 use std::{rand, num};
 
 use super::intercommunication::{Intercommunication, Ack, LeaderQuery, LeaderQueryResponse, Pack, Endpoint, AppendQuery, AppendLog, RequestVote, Vote};
+use super::replication::{ReplicationLog, Committable};
 
 #[deriving(Clone,Show,PartialEq)]
 pub enum State {
@@ -130,7 +131,7 @@ impl Node {
         self.contact().tx.send(ExitCommand);
     }
 
-    pub fn start < T: Intercommunication >(&mut self, host: &str, intercommunication: &mut T) {
+    pub fn start < T: Intercommunication, C: Committable, Y: ReplicationLog < C > >(&mut self, host: &str, intercommunication: &mut T, log: Y) {
         match self.contact {
             Some(_) => {},
             None => self.contact = Some(NodeService::start_service(
