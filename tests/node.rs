@@ -3,20 +3,20 @@ extern crate raft_rs;
 mod helpers {
     use raft_rs::node::{Node};
     use raft_rs::intercommunication::{DefaultIntercommunication, Intercommunication, start};
-    use raft_rs::replication::{DefaultReplicationLog, ReplicationLog};
+    use raft_rs::replication::{DefaultReplicationLog, ReplicationLog, DefaultCommandContainer, DefaultReceivable, DefaultQuery};
 
     use std::io::timer::sleep;
     use std::time::duration::Duration;
 
-    pub fn node() -> Node {
+    pub fn node() -> Node < DefaultCommandContainer, DefaultQuery, DefaultReceivable > {
         Node::new()
     }
 
-    pub fn comm() -> DefaultIntercommunication {
+    pub fn comm() -> DefaultIntercommunication < DefaultCommandContainer > {
         Intercommunication::new()
     }
 
-    pub fn start_comm < T: Intercommunication + Send >(comm: T) -> Sender < int > {
+    pub fn start_comm < T: Intercommunication < DefaultCommandContainer > + Send >(comm: T) -> Sender < int > {
         start(comm)
     }
 
@@ -24,7 +24,7 @@ mod helpers {
         stop_comm.send(0)
     }
 
-    pub fn with_proper_comm(f: |DefaultIntercommunication| -> Sender < int >) {
+    pub fn with_proper_comm(f: |DefaultIntercommunication < DefaultCommandContainer >| -> Sender < int >) {
         let sig = f(Intercommunication::new());
         sig.send(0);
     }
@@ -33,8 +33,8 @@ mod helpers {
         sleep(Duration::milliseconds(ms));
     }
 
-    pub fn node_start(node: &mut Node, host: &str, comm: &mut DefaultIntercommunication) {
-        let log: DefaultReplicationLog = ReplicationLog::new();
+    pub fn node_start(node: &mut Node < DefaultCommandContainer, DefaultQuery, DefaultReceivable >, host: &str, comm: &mut DefaultIntercommunication < DefaultCommandContainer >) {
+        let mut log: DefaultReplicationLog = ReplicationLog::new();
         node.start(host, comm, log);
     }
 }
@@ -451,17 +451,13 @@ mod replication {
 
     use helpers;
     use raft_rs::node::{Leader};
-    use raft_rs::replication::{DefaultReplicationLog, ReplicationLog, DefaultPersistence, DefaultCommandContainer, DefaultCommand};
+    use raft_rs::replication::{DefaultReplicationLog, ReplicationLog, DefaultPersistence, DefaultCommandContainer, DefaultCommand, TestSet, TestAdd, DefaultReceivable, ReceivableInt, DefaultQuery};
 
     #[test]
     fn three_nodes_in_a_cluster_come_to_consensus_about_one_command() {
         let mut node = helpers::node();
         let mut follower_1 = helpers::node();
         let mut follower_2 = helpers::node();
-
-        let (persist_tx_0, persist_rx_0) = DefaultPersistence::start();
-        let (persist_tx_1, persist_rx_1) = DefaultPersistence::start();
-        let (persist_tx_2, persist_rx_2) = DefaultPersistence::start();
 
         helpers::with_proper_comm(|mut comm| {
             helpers::node_start(&mut node, "leader", &mut comm);
@@ -480,9 +476,49 @@ mod replication {
             let state = node.state();
             assert_eq!(Leader, state);
 
-            node.enqueue(DefaultCommandContainer { command: TestSet(2), tx: tx.clone() });
-            node.enqueue(DefaultCommandContainer { command: TestAdd(3), tx: tx.clone() });
-            node.enqueue(DefaultCommandContainer { command: TestSet(9), tx: tx.clone() });
+            node.enqueue(DefaultCommandContainer { command: TestSet(2) });
+            node.enqueue(DefaultCommandContainer { command: TestAdd(3) });
+            node.enqueue(DefaultCommandContainer { command: TestSet(9) });
+
+            helpers::sleep_ms(350);
+
+            let (tx, rx): (Sender < DefaultReceivable >, Receiver < DefaultReceivable >) = channel();
+
+            node.query(DefaultQuery, &tx);
+            helpers::sleep_ms(30);
+            assert_eq!(ReceivableInt(2), rx.try_recv().unwrap());
+
+            node.query(DefaultQuery, &tx);
+            helpers::sleep_ms(30);
+            assert_eq!(ReceivableInt(5), rx.try_recv().unwrap());
+
+            node.query(DefaultQuery, &tx);
+            helpers::sleep_ms(30);
+            assert_eq!(ReceivableInt(9), rx.try_recv().unwrap());
+
+            follower_1.query(DefaultQuery, &tx);
+            helpers::sleep_ms(30);
+            assert_eq!(ReceivableInt(2), rx.try_recv().unwrap());
+
+            follower_1.query(DefaultQuery, &tx);
+            helpers::sleep_ms(30);
+            assert_eq!(ReceivableInt(5), rx.try_recv().unwrap());
+
+            follower_1.query(DefaultQuery, &tx);
+            helpers::sleep_ms(30);
+            assert_eq!(ReceivableInt(9), rx.try_recv().unwrap());
+
+            follower_2.query(DefaultQuery, &tx);
+            helpers::sleep_ms(30);
+            assert_eq!(ReceivableInt(2), rx.try_recv().unwrap());
+
+            follower_2.query(DefaultQuery, &tx);
+            helpers::sleep_ms(30);
+            assert_eq!(ReceivableInt(5), rx.try_recv().unwrap());
+
+            follower_2.query(DefaultQuery, &tx);
+            helpers::sleep_ms(30);
+            assert_eq!(ReceivableInt(9), rx.try_recv().unwrap());
 
             node.stop();
             follower_1.stop();

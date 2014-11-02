@@ -3,39 +3,44 @@ use std::io::timer::sleep;
 use std::time::duration::Duration;
 use std::comm::Disconnected;
 
+use std::fmt::Show;
+
 use std::sync::{Arc, Mutex};
 
 use std::task::TaskBuilder;
 
-pub trait Intercommunication {
+use super::replication::Committable;
+
+pub trait Intercommunication < T: Committable + Send > {
     fn new() -> Self;
-    fn register(&mut self, host: String) -> Endpoint;
-    fn receive(&mut self) -> Option < Package >;
-    fn send(&mut self, recipient: String, package: Package);
+    fn register(&mut self, host: String) -> Endpoint < T >;
+    fn receive(&mut self) -> Option < Package < T > >;
+    fn send(&mut self, recipient: String, package: Package < T >);
     fn is_debug(&self) -> bool;
 }
 
-pub struct DefaultIntercommunication {
-    receiver: Receiver < Package >,
-    sender: Sender < Package >,
-    senders: HashMap < String, Sender < Package > >,
+pub struct DefaultIntercommunication < T: Committable + Send > {
+    receiver: Receiver < Package < T > >,
+    sender: Sender < Package < T > >,
+    senders: HashMap < String, Sender < Package < T > > >,
 
     pub is_debug: bool,
 }
 
-pub struct Endpoint {
+pub struct Endpoint < T: Committable + Send > {
     host: String,
-    tx: Sender < Package >,
-    rx: Receiver < Package >,
+    tx: Sender < Package < T > >,
+    rx: Receiver < Package < T > >,
 }
 
 #[deriving(Clone, Show)]
-pub struct AppendLog {
+pub struct AppendLog < T: Committable + Send > {
     pub node_list: Vec < String >,
+    pub enqueue: Option < T >,
 }
 
-impl Intercommunication for DefaultIntercommunication {
-    fn new() -> DefaultIntercommunication {
+impl < T: Committable + Send > Intercommunication < T > for DefaultIntercommunication < T > {
+    fn new() -> DefaultIntercommunication < T > {
         let (tx, rx) = channel();
 
         DefaultIntercommunication {
@@ -46,7 +51,7 @@ impl Intercommunication for DefaultIntercommunication {
         }
     }
 
-    fn register(&mut self, host: String) -> Endpoint {
+    fn register(&mut self, host: String) -> Endpoint < T > {
         let (tx, rx) = channel();
 
         self.senders.insert(host.clone(), tx);
@@ -58,14 +63,14 @@ impl Intercommunication for DefaultIntercommunication {
         }
     }
 
-    fn receive(&mut self) -> Option < Package > {
+    fn receive(&mut self) -> Option < Package < T > > {
         match self.receiver.try_recv() {
             Ok(package) => Some(package),
             _ => None,
         }
     }
 
-    fn send(&mut self, recipient: String, package: Package) {
+    fn send(&mut self, recipient: String, package: Package < T >) {
         match self.senders.find(&recipient) {
             Some(tx) => {
                 tx.send(package);
@@ -79,12 +84,12 @@ impl Intercommunication for DefaultIntercommunication {
     }
 }
 
-impl Endpoint {
-    pub fn send(&self, host: String, package: PackageDetails) {
+impl < T: Committable + Send > Endpoint < T > {
+    pub fn send (&self, host: String, package: PackageDetails < T >) {
         self.tx.send(Pack(self.host.clone(), host, package));
     }
 
-    pub fn listen_block_with_timeout(&self) -> Option < Package > {
+    pub fn listen_block_with_timeout(&self) -> Option < Package < T > > {
         for _ in range(0, 10u) {
             match self.listen() {
                 Some(x) => return Some(x),
@@ -97,7 +102,7 @@ impl Endpoint {
         None
     }
 
-    pub fn listen(&self) -> Option < Package > {
+    pub fn listen(&self) -> Option < Package < T > > {
         match self.rx.try_recv() {
             Ok(result) => Some(result),
             _ => None,
@@ -106,7 +111,7 @@ impl Endpoint {
 }
 
 #[deriving(Show)]
-pub enum PackageDetails {
+pub enum PackageDetails < T: Committable + Send > {
     Ack,
 
     LeaderQuery,
@@ -115,7 +120,7 @@ pub enum PackageDetails {
     LeaderQueryResponse(Option < String >),
 
     // AppendQuery(log)
-    AppendQuery(AppendLog),
+    AppendQuery(AppendLog < T >),
 
     // RequestVote(term
     RequestVote(uint),
@@ -124,12 +129,12 @@ pub enum PackageDetails {
     Vote(uint),
 }
 
-pub enum Package {
+pub enum Package < T: Committable + Send > {
     // Pack(from, to, package)
-    Pack(String, String, PackageDetails),
+    Pack(String, String, PackageDetails < T >),
 }
 
-pub fn start < T: Intercommunication + Send >(intercommunication: T) -> Sender < int > {
+pub fn start < T: Committable + Send + Clone + Show, I: Intercommunication < T > + Send >(intercommunication: I) -> Sender < int > {
     let mutex = Arc::new(Mutex::new(intercommunication));
     let (exit_tx, exit_rx) = channel();
 

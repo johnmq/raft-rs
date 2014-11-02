@@ -1,29 +1,28 @@
 extern crate raft_rs;
 
-use raft_rs::replication::{DefaultCommandContainer, DefaultPersistence, DefaultReplicationLog, ReplicationLog, TestAdd, TestSet, Committable};
+use raft_rs::replication::{DefaultCommandContainer, DefaultPersistence, DefaultReplicationLog, ReplicationLog, TestAdd, TestSet, Committable, LogPersistence};
 
 #[test]
-fn default_command_container_implements_commit() {
-    let (tx, value_rx) = DefaultPersistence::start();
+fn default_persistance_implements_commit() {
+    let persistence = DefaultPersistence::start();
 
-    DefaultCommandContainer { command: TestSet(3), tx: tx.clone() }.commit();
-    assert_eq!(3, value_rx.recv());
+    persistence.commit(DefaultCommandContainer { command: TestSet(3) });
+    assert_eq!(3, persistence.rx.recv());
 
-    DefaultCommandContainer { command: TestAdd(5), tx: tx.clone() }.commit();
-    assert_eq!(8, value_rx.recv());
+    persistence.commit(DefaultCommandContainer { command: TestAdd(5) });
+    assert_eq!(8, persistence.rx.recv());
 
-    DefaultCommandContainer { command: TestSet(13), tx: tx.clone() }.commit();
-    assert_eq!(13, value_rx.recv());
+    persistence.commit(DefaultCommandContainer { command: TestSet(13) });
+    assert_eq!(13, persistence.rx.recv());
 }
 
 #[test]
 fn enqueue_and_commit_command() {
-    let (tx, value_rx) = DefaultPersistence::start();
     let mut log: DefaultReplicationLog = ReplicationLog::new();
 
-    log.enqueue(DefaultCommandContainer { command: TestSet(3), tx: tx.clone() });
-    log.enqueue(DefaultCommandContainer { command: TestAdd(5), tx: tx.clone() });
-    log.enqueue(DefaultCommandContainer { command: TestSet(21), tx: tx.clone() });
+    log.enqueue(DefaultCommandContainer { command: TestSet(3) });
+    log.enqueue(DefaultCommandContainer { command: TestAdd(5) });
+    log.enqueue(DefaultCommandContainer { command: TestSet(21) });
 
     assert_eq!(3, log.len());
     assert_eq!(0, log.committed_offset());
@@ -31,18 +30,17 @@ fn enqueue_and_commit_command() {
     log.commit_upto(2);
 
     assert_eq!(2, log.committed_offset());
-    assert_eq!(3, value_rx.recv());
-    assert_eq!(8, value_rx.recv());
+    assert_eq!(3, log.persistence.rx.recv());
+    assert_eq!(8, log.persistence.rx.recv());
 }
 
 #[test]
 fn enqueue_and_discard_commands() {
-    let (tx, value_rx) = DefaultPersistence::start();
     let mut log: DefaultReplicationLog = ReplicationLog::new();
 
-    log.enqueue(DefaultCommandContainer { command: TestSet(3), tx: tx.clone() });
-    log.enqueue(DefaultCommandContainer { command: TestAdd(5), tx: tx.clone() });
-    log.enqueue(DefaultCommandContainer { command: TestSet(21), tx: tx.clone() });
+    log.enqueue(DefaultCommandContainer { command: TestSet(3) });
+    log.enqueue(DefaultCommandContainer { command: TestAdd(5) });
+    log.enqueue(DefaultCommandContainer { command: TestSet(21) });
 
     assert_eq!(3, log.len());
     assert_eq!(0, log.committed_offset());
@@ -55,5 +53,5 @@ fn enqueue_and_discard_commands() {
     log.commit_upto(1);
 
     assert_eq!(1, log.committed_offset());
-    assert_eq!(3, value_rx.recv());
+    assert_eq!(3, log.persistence.rx.recv());
 }

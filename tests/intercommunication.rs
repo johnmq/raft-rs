@@ -4,10 +4,11 @@ extern crate raft_rs;
 mod using_dumb_network {
 
     use raft_rs::intercommunication::{Intercommunication, DefaultIntercommunication, Ack, Pack, start};
+    use raft_rs::replication::{DefaultCommandContainer};
 
     #[test]
     fn sending_simple_ack() {
-        let mut comm: DefaultIntercommunication = Intercommunication::new();
+        let mut comm: DefaultIntercommunication < DefaultCommandContainer > = Intercommunication::new();
 
         let comm_1 = comm.register("host_1".to_string());
         let comm_2 = comm.register("host_2".to_string());

@@ -4,10 +4,37 @@ use std::time::duration::Duration;
 use std::comm::Disconnected;
 
 pub trait Committable {
-    fn commit(&self) -> io::IoResult < () >;
+
 }
 
-pub trait ReplicationLog < T: Committable > {
+pub trait Receivable {
+
+}
+
+pub trait Queriable {
+
+}
+
+pub trait LogPersistence < T: Committable > {
+    fn commit(&self, entry: T) -> io::IoResult < () >;
+}
+
+#[deriving(Show, PartialEq)]
+pub enum DefaultReceivable {
+    ReceivableInt(int),
+}
+
+impl Receivable for DefaultReceivable {
+
+}
+
+pub struct DefaultQuery;
+
+impl Queriable for DefaultQuery {
+
+}
+
+pub trait ReplicationLog < T: Committable, Q: Queriable, R: Receivable > {
     fn new() -> Self;
 
     fn len(&self) -> uint;
@@ -15,25 +42,35 @@ pub trait ReplicationLog < T: Committable > {
     fn commit_upto(&mut self, new_committed_offset: uint) -> io::IoResult < () >;
     fn discard_downto(&mut self, new_len: uint) -> io::IoResult < () >;
 
-    fn enqueue (&mut self, entry: T) -> io::IoResult < () >;
+    fn enqueue(&mut self, entry: T) -> io::IoResult < uint >;
+    fn query_persistance(&mut self, query: Q, respond_to: Sender < R >);
 }
 
+#[deriving(Clone, Show)]
 pub enum DefaultCommand {
     TestSet(int),
     TestAdd(int),
 }
 
+#[deriving(Clone, Show)]
 pub struct DefaultCommandContainer {
     pub command: DefaultCommand,
-    pub tx: Sender < DefaultCommand >,
 }
 
-pub struct DefaultPersistence;
+pub struct DefaultPersistence {
+    tx: Sender < DefaultCommandContainer >,
+    pub rx: Receiver < int >,
+}
 
 impl DefaultPersistence {
-    pub fn start() -> (Sender < DefaultCommand >, Receiver < int >) {
+    pub fn start() -> DefaultPersistence {
         let (tx, rx) = channel();
         let (value_tx, value_rx) = channel();
+
+        let me = DefaultPersistence {
+            tx: tx,
+            rx: value_rx,
+        };
 
         spawn(proc() {
             let mut value = 0i;
@@ -42,8 +79,8 @@ impl DefaultPersistence {
                 match rx.try_recv() {
                     Ok(command) => {
                         match command {
-                            TestSet(x) => value = x,
-                            TestAdd(dx) => value += dx,
+                            DefaultCommandContainer{ command: TestSet(x) } => value = x,
+                            DefaultCommandContainer{ command: TestAdd(dx) } => value += dx,
                         }
 
                         value_tx.send(value);
@@ -56,27 +93,33 @@ impl DefaultPersistence {
             }
         });
 
-        (tx, value_rx)
+        me
     }
 }
 
 pub struct DefaultReplicationLog {
     log: Vec < DefaultCommandContainer >,
     offset: uint,
+    pub persistence: DefaultPersistence,
 }
 
 impl Committable for DefaultCommandContainer {
-    fn commit(&self) -> io::IoResult < () > {
-        self.tx.send(self.command);
+
+}
+
+impl LogPersistence < DefaultCommandContainer > for DefaultPersistence {
+    fn commit(&self, entry: DefaultCommandContainer) -> io::IoResult < () > {
+        self.tx.send(entry);
         Ok(())
     }
 }
 
-impl ReplicationLog < DefaultCommandContainer > for DefaultReplicationLog {
+impl ReplicationLog < DefaultCommandContainer, DefaultQuery, DefaultReceivable > for DefaultReplicationLog {
     fn new() -> DefaultReplicationLog {
         DefaultReplicationLog {
             log: vec![],
             offset: 0,
+            persistence: DefaultPersistence::start(),
         }
     }
 
@@ -90,7 +133,7 @@ impl ReplicationLog < DefaultCommandContainer > for DefaultReplicationLog {
 
     fn commit_upto(&mut self, new_committed_offset: uint) -> io::IoResult < () > {
         while self.offset < new_committed_offset && self.offset < self.len() {
-            self.log[self.offset].commit();
+            self.persistence.commit(self.log[self.offset]);
             self.offset += 1;
         }
 
@@ -104,8 +147,15 @@ impl ReplicationLog < DefaultCommandContainer > for DefaultReplicationLog {
         Ok(())
     }
 
-    fn enqueue (&mut self, entry: DefaultCommandContainer) -> io::IoResult < () > {
+    fn enqueue(&mut self, entry: DefaultCommandContainer) -> io::IoResult < uint > {
         self.log.push(entry);
-        Ok(())
+        Ok(self.log.len())
+    }
+
+    fn query_persistance(&mut self, query: DefaultQuery, respond_to: Sender < DefaultReceivable >) {
+        match self.persistence.rx.try_recv() {
+            Ok(value) => respond_to.send(ReceivableInt(value)),
+            _ => (),
+        }
     }
 }

@@ -9,7 +9,7 @@ use std::task::TaskBuilder;
 use std::{rand, num};
 
 use super::intercommunication::{Intercommunication, Ack, LeaderQuery, LeaderQueryResponse, Pack, Endpoint, AppendQuery, AppendLog, RequestVote, Vote};
-use super::replication::{ReplicationLog, Committable};
+use super::replication::{ReplicationLog, Committable, Receivable, Queriable};
 
 #[deriving(Clone,Show,PartialEq)]
 pub enum State {
@@ -18,8 +18,8 @@ pub enum State {
     Leader,
 }
 
-pub struct Node {
-    contact: Option < NodeContact >,
+pub struct Node < T: Committable + Send, Q: Queriable + Send, R: Receivable + Send > {
+    contact: Option < NodeContact < T, Q, R > >,
 }
 
 #[deriving(Clone,Show,PartialEq)]
@@ -27,34 +27,36 @@ pub struct NodeHost {
     pub host: String,
 }
 
-struct NodeService {
+struct NodeService < T: Committable + Send, R: ReplicationLog < T, Q, Rcv > + Send, Q: Queriable + Send, Rcv: Receivable + Send > {
     state: State,
     my_host: NodeHost,
     leader_host: Option < NodeHost >,
 
-    contact: NodeServiceContact,
+    contact: NodeServiceContact < T, Q, Rcv >,
     nodes: Vec < NodeHost >,
 
-    comm: Endpoint,
+    comm: Endpoint < T >,
 
     last_append_log_seen_at: time::Timespec,
     term: uint,
     votes: uint,
     already_requested: bool,
+
+    log: R,
 }
 
-struct NodeContact {
-    tx: Sender < Command >,
+struct NodeContact < T: Committable + Send, Q: Queriable + Send, R: Receivable + Send > {
+    tx: Sender < Command < T, Q, R > >,
     rx: Receiver < CommandResponse >,
 }
 
-struct NodeServiceContact {
+struct NodeServiceContact < T: Committable + Send, Q: Queriable + Send, R: Receivable + Send >  {
     tx: Sender < CommandResponse >,
-    rx: Receiver < Command >,
+    rx: Receiver < Command < T, Q, R > >,
 }
 
 
-enum Command {
+enum Command < T: Committable + Send, Q: Queriable + Send, R: Receivable + Send > {
     Introduce(String),
 
     FetchNodes,
@@ -64,6 +66,9 @@ enum Command {
 
     AssignState(State),
     FetchState,
+
+    Enqueue(T),
+    Query(Q, Sender < R >),
 
     ExitCommand,
 }
@@ -76,8 +81,8 @@ enum CommandResponse {
     FetchedNodes(Vec < NodeHost >),
 }
 
-impl Node {
-    pub fn new() -> Node {
+impl < T: Committable + Send + Clone, Q: Queriable + Send, R: Receivable + Send > Node < T, Q, R > {
+    pub fn new() -> Node < T, Q, R > {
         Node { contact: None }
     }
 
@@ -127,23 +132,32 @@ impl Node {
         }
     }
 
+    pub fn enqueue(&self, command: T) {
+        self.contact().tx.send(Enqueue(command));
+    }
+
+    pub fn query(&self, query: Q, respond_to: &Sender < R >) {
+        self.contact().tx.send(Query(query, respond_to.clone()));
+    }
+
     pub fn stop(&self) {
         self.contact().tx.send(ExitCommand);
     }
 
-    pub fn start < T: Intercommunication, C: Committable, Y: ReplicationLog < C > >(&mut self, host: &str, intercommunication: &mut T, log: Y) {
+    pub fn start < I: Intercommunication < T >, Y: ReplicationLog < T, Q, R > + 'static + Send >(&mut self, host: &str, intercommunication: &mut I, log: Y) {
         match self.contact {
             Some(_) => {},
             None => self.contact = Some(NodeService::start_service(
                     host.to_string(),
                     intercommunication,
+                    log,
                     )),
         }
     }
 
     // private
 
-    fn contact(&self) -> &NodeContact {
+    fn contact(&self) -> &NodeContact < T, Q, R > {
         match self.contact {
             Some(ref x) => x,
             None => panic!("You forgot to start the node")
@@ -152,8 +166,8 @@ impl Node {
 
 }
 
-impl NodeService {
-    fn new(host: String, service_contact: NodeServiceContact, comm: Endpoint) -> NodeService {
+impl < T: Committable + Send + Clone, R: ReplicationLog < T, Q, Rcv > + 'static + Send, Q: Queriable + Send, Rcv: Receivable + Send > NodeService < T, R, Q, Rcv > {
+    fn new (host: String, service_contact: NodeServiceContact < T, Q, Rcv >, comm: Endpoint < T >, log: R) -> NodeService < T, R, Q, Rcv > {
         NodeService {
             state: Follower,
             my_host: NodeHost { host: host.clone() },
@@ -168,16 +182,18 @@ impl NodeService {
             term: 0,
             votes: 0,
             already_requested: false,
+
+            log: log,
         }
     }
 
-    fn start_service < T: Intercommunication >(host: String, intercommunication: &mut T) -> NodeContact {
+    fn start_service < I: Intercommunication < T > >(host: String, intercommunication: &mut I, log: R) -> NodeContact < T, Q, Rcv > {
         let (contact, service_contact) = NodeService::channels();
 
         let comm = intercommunication.register(host.clone());
 
         TaskBuilder::new().named(format!("{}-service", host)).spawn(proc() {
-            let mut me = NodeService::new(host, service_contact, comm);
+            let mut me = NodeService::new(host, service_contact, comm, log);
 
             let mut dead = false;
 
@@ -195,7 +211,7 @@ impl NodeService {
         contact
     }
 
-    fn channels() -> (NodeContact, NodeServiceContact) {
+    fn channels() -> (NodeContact < T, Q, Rcv >, NodeServiceContact < T, Q, Rcv >) {
         let (tx, service_rx) = channel();
         let (service_tx, rx) = channel();
 
@@ -241,6 +257,23 @@ impl NodeService {
                 self.comm.send(host, LeaderQuery);
             },
 
+            Ok(Enqueue(command)) => {
+                if self.state == Leader {
+                    match self.log.enqueue(command.clone()) {
+                        Ok(entry_offset) => {
+                            println!("Sending append_log with command");
+                            self.send_append_log(Some(command.clone()));
+                            self.log.commit_upto(entry_offset);
+                        },
+                        _ => ()
+                    }
+                }
+            },
+
+            Ok(Query(query, respond_to)) => {
+                self.log.query_persistance(query, respond_to);
+            }
+
             Err(Disconnected) => dead = true,
 
             Err(_) => (),
@@ -254,6 +287,7 @@ impl NodeService {
             Some(Pack(from, _, Ack)) => {
                 self.nodes.push(NodeHost { host: from });
             },
+
             Some(Pack(from, _, LeaderQuery)) => {
                 let leader_host = match self.leader_host {
                     Some(NodeHost { ref host }) => Some(host.clone()),
@@ -262,17 +296,33 @@ impl NodeService {
 
                 self.comm.send(from, LeaderQueryResponse(leader_host));
             },
+
             Some(Pack(_, _, LeaderQueryResponse(leader_host))) => {
                 match leader_host {
                     Some(host) => self.comm.send(host, Ack),
                     None => (),
                 }
             },
+
             Some(Pack(leader, _, AppendQuery(log))) => {
                 self.nodes = log.node_list.iter().map(|x| { NodeHost { host: x.clone() } }).collect();
                 self.last_append_log_seen_at = time::now().to_timespec();
                 self.leader_host = Some(NodeHost { host: leader });
+
+                match log.enqueue {
+                    Some(command) => {
+                        println!("Got command from master");
+                        match self.log.enqueue(command.clone()) {
+                            Ok(offset) => {
+                                self.log.commit_upto(offset);
+                            },
+                            _ => (),
+                        }
+                    },
+                    None => (),
+                }
             },
+
             Some(Pack(candidate, _, RequestVote(term))) => {
                 if term > self.term {
                     self.term = term;
@@ -281,6 +331,7 @@ impl NodeService {
                     self.comm.send(candidate, Vote(term));
                 }
             },
+
             Some(Pack(_, _, Vote(term))) => {
                 if term == self.term && self.state == Candidate {
                     self.votes += 1;
@@ -289,14 +340,16 @@ impl NodeService {
                     }
                 }
             },
+
             None => (),
         }
     }
 
-    fn send_append_log(&mut self) {
+    fn send_append_log(&mut self, enqueue: Option < T >) {
         let node_list = self.nodes.clone();
         let log = AppendLog {
             node_list: node_list.iter().map(|x| { x.host.clone() }).collect(),
+            enqueue: enqueue,
         };
 
         for node in self.nodes.iter() {
@@ -339,7 +392,7 @@ impl NodeService {
                 }
             },
             Leader => {
-                self.send_append_log();
+                self.send_append_log(None);
             },
         }
     }
