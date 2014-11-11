@@ -1,4 +1,5 @@
 extern crate time;
+extern crate core;
 
 use std::io::timer::sleep;
 use std::time::duration::Duration;
@@ -8,7 +9,9 @@ use std::task::TaskBuilder;
 
 use std::{rand, num};
 
-use super::intercommunication::{Intercommunication, Ack, LeaderQuery, LeaderQueryResponse, Pack, Endpoint, AppendQuery, AppendLog, RequestVote, Vote};
+use std::fmt::Show;
+
+use super::intercommunication::{Intercommunication, Ack, LeaderQuery, LeaderQueryResponse, Persisted, Pack, Endpoint, AppendQuery, AppendLog, AppendLogEntry, RequestVote, Vote};
 use super::replication::{ReplicationLog, Committable, Receivable, Queriable};
 
 #[deriving(Clone,Show,PartialEq)]
@@ -81,7 +84,7 @@ enum CommandResponse {
     FetchedNodes(Vec < NodeHost >),
 }
 
-impl < T: Committable + Send + Clone, Q: Queriable + Send, R: Receivable + Send > Node < T, Q, R > {
+impl < T: Committable + Send + Clone + Show, Q: Queriable + Send, R: Receivable + Send > Node < T, Q, R > {
     pub fn new() -> Node < T, Q, R > {
         Node { contact: None }
     }
@@ -166,7 +169,7 @@ impl < T: Committable + Send + Clone, Q: Queriable + Send, R: Receivable + Send 
 
 }
 
-impl < T: Committable + Send + Clone, R: ReplicationLog < T, Q, Rcv > + 'static + Send, Q: Queriable + Send, Rcv: Receivable + Send > NodeService < T, R, Q, Rcv > {
+impl < T: Committable + Send + Clone + Show, R: ReplicationLog < T, Q, Rcv > + 'static + Send, Q: Queriable + Send, Rcv: Receivable + Send > NodeService < T, R, Q, Rcv > {
     fn new (host: String, service_contact: NodeServiceContact < T, Q, Rcv >, comm: Endpoint < T >, log: R) -> NodeService < T, R, Q, Rcv > {
         NodeService {
             state: Follower,
@@ -203,6 +206,8 @@ impl < T: Committable + Send + Clone, R: ReplicationLog < T, Q, Rcv > + 'static 
                 me.react_to_intercommunication();
 
                 me.election_handler();
+
+                me.autocommit();
 
                 sleep(Duration::milliseconds(10));
             }
@@ -262,8 +267,14 @@ impl < T: Committable + Send + Clone, R: ReplicationLog < T, Q, Rcv > + 'static 
                     match self.log.enqueue(command.clone()) {
                         Ok(entry_offset) => {
                             println!("Sending append_log with command");
-                            self.send_append_log(Some(command.clone()));
-                            self.log.commit_upto(entry_offset);
+                            self.send_append_log(Some(AppendLogEntry {
+                                offset: entry_offset,
+                                entry: command.clone(),
+                            }));
+                            //self.log.commit_upto(entry_offset);
+
+                            let me = self.my_host.host.clone();
+                            self.log.persisted(entry_offset, me);
                         },
                         _ => ()
                     }
@@ -307,14 +318,19 @@ impl < T: Committable + Send + Clone, R: ReplicationLog < T, Q, Rcv > + 'static 
             Some(Pack(leader, _, AppendQuery(log))) => {
                 self.nodes = log.node_list.iter().map(|x| { NodeHost { host: x.clone() } }).collect();
                 self.last_append_log_seen_at = time::now().to_timespec();
-                self.leader_host = Some(NodeHost { host: leader });
+                self.leader_host = Some(NodeHost { host: leader.clone() });
+
+                println!("Got log.enqueue => {}", log.enqueue);
 
                 match log.enqueue {
-                    Some(command) => {
-                        println!("Got command from master");
-                        match self.log.enqueue(command.clone()) {
-                            Ok(offset) => {
-                                self.log.commit_upto(offset);
+                    Some(log_entry) => {
+                        panic!("WTF?");
+                        println!("{}: Got command from {}", self.my_host.host, leader);
+                        match self.log.enqueue(log_entry.entry.clone()) {
+                            Ok(my_offset) => {
+                                // self.log.commit_upto(offset);
+                                println!("Sending persisted {} to {}", log_entry.offset, leader);
+                                self.comm.send(leader, Persisted(log_entry.offset));
                             },
                             _ => (),
                         }
@@ -322,6 +338,10 @@ impl < T: Committable + Send + Clone, R: ReplicationLog < T, Q, Rcv > + 'static 
                     None => (),
                 }
             },
+
+            Some(Pack(follower, _, Persisted(offset))) => {
+                self.log.persisted(offset, follower);
+            }
 
             Some(Pack(candidate, _, RequestVote(term))) => {
                 if term > self.term {
@@ -345,7 +365,7 @@ impl < T: Committable + Send + Clone, R: ReplicationLog < T, Q, Rcv > + 'static 
         }
     }
 
-    fn send_append_log(&mut self, enqueue: Option < T >) {
+    fn send_append_log(&mut self, enqueue: Option < AppendLogEntry < T > >) {
         let node_list = self.nodes.clone();
         let log = AppendLog {
             node_list: node_list.iter().map(|x| { x.host.clone() }).collect(),
@@ -354,7 +374,17 @@ impl < T: Committable + Send + Clone, R: ReplicationLog < T, Q, Rcv > + 'static 
 
         for node in self.nodes.iter() {
             if node.host != self.my_host.host {
-                self.comm.send(node.host.clone(), AppendQuery(log.clone()));
+                let pack = AppendQuery(log.clone());
+                match log.enqueue {
+                    Some(_) => println!("Sending enqueue({}) to {}", pack, node.host),
+                    _ => (),
+                }
+
+                match log.enqueue {
+                    Some(_) => println!("Sending enqueue({}) to {}", pack, node.host),
+                    _ => (),
+                }
+                self.comm.send(node.host.clone(), pack);
             }
         }
     }
@@ -395,5 +425,11 @@ impl < T: Committable + Send + Clone, R: ReplicationLog < T, Q, Rcv > + 'static 
                 self.send_append_log(None);
             },
         }
+    }
+
+    fn autocommit(&mut self) {
+        let majority_size = self.nodes.len();
+
+        self.log.autocommit_if_safe(majority_size);
     }
 }

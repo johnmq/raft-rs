@@ -42,7 +42,10 @@ pub trait ReplicationLog < T: Committable, Q: Queriable, R: Receivable > {
     fn commit_upto(&mut self, new_committed_offset: uint) -> io::IoResult < () >;
     fn discard_downto(&mut self, new_len: uint) -> io::IoResult < () >;
 
+    fn autocommit_if_safe(&mut self, majority_size: uint);
+
     fn enqueue(&mut self, entry: T) -> io::IoResult < uint >;
+    fn persisted(&mut self, offset: uint, node: String) -> io::IoResult < uint >;
     fn query_persistance(&mut self, query: Q, respond_to: Sender < R >);
 }
 
@@ -99,8 +102,13 @@ impl DefaultPersistence {
 
 pub struct DefaultReplicationLog {
     log: Vec < DefaultCommandContainer >,
+    persisted_by: Vec < DefaultPersistedBy >,
     offset: uint,
     pub persistence: DefaultPersistence,
+}
+
+struct DefaultPersistedBy {
+    node_list: Vec < String >,
 }
 
 impl Committable for DefaultCommandContainer {
@@ -114,10 +122,23 @@ impl LogPersistence < DefaultCommandContainer > for DefaultPersistence {
     }
 }
 
+impl DefaultReplicationLog {
+    fn safe_to_commit(&mut self, offset: uint, majority_size: uint) -> bool {
+        if self.persisted_by.len() > 0 {
+            if self.persisted_by.len() > offset && self.persisted_by[offset].node_list.len() > 1 {
+                println!("persisted by count: {}", self.persisted_by[offset].node_list.len());
+            }
+        }
+        self.persisted_by.len() > offset &&
+            self.persisted_by[offset].node_list.len() >= majority_size
+    }
+}
+
 impl ReplicationLog < DefaultCommandContainer, DefaultQuery, DefaultReceivable > for DefaultReplicationLog {
     fn new() -> DefaultReplicationLog {
         DefaultReplicationLog {
             log: vec![],
+            persisted_by: vec![],
             offset: 0,
             persistence: DefaultPersistence::start(),
         }
@@ -147,9 +168,29 @@ impl ReplicationLog < DefaultCommandContainer, DefaultQuery, DefaultReceivable >
         Ok(())
     }
 
+    fn autocommit_if_safe(&mut self, majority_size: uint) {
+        let target_offset = self.committed_offset();
+        let safe = self.safe_to_commit(target_offset, majority_size);
+
+        if safe {
+            println!("Auto-committing");
+            self.commit_upto(target_offset);
+        }
+    }
+
     fn enqueue(&mut self, entry: DefaultCommandContainer) -> io::IoResult < uint > {
         self.log.push(entry);
-        Ok(self.log.len())
+        self.persisted_by.push(DefaultPersistedBy { node_list: vec![] });
+        Ok(self.log.len() - 1)
+    }
+
+    fn persisted(&mut self, offset: uint, host: String) -> io::IoResult < uint > {
+        println!("Trying to persist {} for {}", offset, host);
+        if !self.persisted_by[offset].node_list.contains(&host) {
+            println!("Done persisting {} for {}", offset, host);
+            self.persisted_by[offset].node_list.push(host);
+        }
+        Ok(offset)
     }
 
     fn query_persistance(&mut self, query: DefaultQuery, respond_to: Sender < DefaultReceivable >) {

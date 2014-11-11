@@ -11,7 +11,7 @@ use std::task::TaskBuilder;
 
 use super::replication::Committable;
 
-pub trait Intercommunication < T: Committable + Send > {
+pub trait Intercommunication < T: Committable + Send + Show > {
     fn new() -> Self;
     fn register(&mut self, host: String) -> Endpoint < T >;
     fn receive(&mut self) -> Option < Package < T > >;
@@ -36,10 +36,16 @@ pub struct Endpoint < T: Committable + Send > {
 #[deriving(Clone, Show)]
 pub struct AppendLog < T: Committable + Send > {
     pub node_list: Vec < String >,
-    pub enqueue: Option < T >,
+    pub enqueue: Option < AppendLogEntry < T > >,
 }
 
-impl < T: Committable + Send > Intercommunication < T > for DefaultIntercommunication < T > {
+#[deriving(Clone, Show)]
+pub struct AppendLogEntry < T: Committable + Send > {
+    pub offset: uint,
+    pub entry: T,
+}
+
+impl < T: Committable + Send + Show > Intercommunication < T > for DefaultIntercommunication < T > {
     fn new() -> DefaultIntercommunication < T > {
         let (tx, rx) = channel();
 
@@ -71,11 +77,18 @@ impl < T: Committable + Send > Intercommunication < T > for DefaultIntercommunic
     }
 
     fn send(&mut self, recipient: String, package: Package < T >) {
+        println!("Sending package: {}", package);
+
         match self.senders.find(&recipient) {
             Some(tx) => {
                 // be more careful at sending
                 match tx.send_opt(package) {
-                    Err(_) => println!("{} is not available", recipient),
+                    Err(Pack(_, _, AppendQuery(pack))) => {
+                        match pack.enqueue {
+                            Some(_) => println!("Unable to send append_query to {}", recipient),
+                            _ => (),
+                        }
+                    },
                     _ => (),
                 }
             },
@@ -126,6 +139,9 @@ pub enum PackageDetails < T: Committable + Send > {
     // AppendQuery(log)
     AppendQuery(AppendLog < T >),
 
+    // Persisted(entry_offset)
+    Persisted(uint),
+
     // RequestVote(term
     RequestVote(uint),
 
@@ -133,6 +149,7 @@ pub enum PackageDetails < T: Committable + Send > {
     Vote(uint),
 }
 
+#[deriving(Show)]
 pub enum Package < T: Committable + Send > {
     // Pack(from, to, package)
     Pack(String, String, PackageDetails < T >),

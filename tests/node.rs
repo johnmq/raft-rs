@@ -534,7 +534,7 @@ mod election {
 mod replication {
 
     use helpers;
-    use raft_rs::node::{Leader};
+    use raft_rs::node::{Leader, Follower};
     use raft_rs::replication::{DefaultReplicationLog, ReplicationLog, DefaultPersistence, DefaultCommandContainer, DefaultCommand, TestSet, TestAdd, DefaultReceivable, ReceivableInt, DefaultQuery};
 
     #[test]
@@ -557,8 +557,8 @@ mod replication {
 
             helpers::sleep_ms(350);
 
-            let state = node.state();
-            assert_eq!(Leader, state);
+            let states = vec![node.state(), follower_1.state(), follower_2.state()];
+            assert_eq!(vec![Leader, Follower, Follower], states);
 
             node.enqueue(DefaultCommandContainer { command: TestSet(2) });
             node.enqueue(DefaultCommandContainer { command: TestAdd(3) });
@@ -607,6 +607,121 @@ mod replication {
             node.stop();
             follower_1.stop();
             follower_2.stop();
+
+            sig
+        })
+    }
+
+    #[test]
+    fn two_of_three_nodes_in_a_cluster_come_to_consensus_about_one_command() {
+        let mut node = helpers::node();
+        let mut follower_1 = helpers::node();
+        let mut follower_2 = helpers::node();
+
+        helpers::with_proper_comm(|mut comm| {
+            helpers::node_start(&mut node, "leader", &mut comm);
+            helpers::node_start(&mut follower_1, "sarah", &mut comm);
+            helpers::node_start(&mut follower_2, "john", &mut comm);
+
+            node.forced_state(Leader);
+
+            follower_1.introduce("leader");
+            follower_2.introduce("leader");
+
+            let sig = helpers::start_comm(comm);
+
+            helpers::sleep_ms(350);
+
+            let state = node.state();
+            assert_eq!(Leader, state);
+
+            follower_1.stop();
+
+            helpers::sleep_ms(30);
+
+            node.enqueue(DefaultCommandContainer { command: TestSet(2) });
+            node.enqueue(DefaultCommandContainer { command: TestAdd(3) });
+            node.enqueue(DefaultCommandContainer { command: TestSet(9) });
+
+            helpers::sleep_ms(350);
+
+            let (tx, rx): (Sender < DefaultReceivable >, Receiver < DefaultReceivable >) = channel();
+
+            node.query(DefaultQuery, &tx);
+            helpers::sleep_ms(30);
+            assert_eq!(ReceivableInt(2), rx.try_recv().unwrap());
+
+            node.query(DefaultQuery, &tx);
+            helpers::sleep_ms(30);
+            assert_eq!(ReceivableInt(5), rx.try_recv().unwrap());
+
+            node.query(DefaultQuery, &tx);
+            helpers::sleep_ms(30);
+            assert_eq!(ReceivableInt(9), rx.try_recv().unwrap());
+
+            follower_2.query(DefaultQuery, &tx);
+            helpers::sleep_ms(30);
+            assert_eq!(ReceivableInt(2), rx.try_recv().unwrap());
+
+            follower_2.query(DefaultQuery, &tx);
+            helpers::sleep_ms(30);
+            assert_eq!(ReceivableInt(5), rx.try_recv().unwrap());
+
+            follower_2.query(DefaultQuery, &tx);
+            helpers::sleep_ms(30);
+            assert_eq!(ReceivableInt(9), rx.try_recv().unwrap());
+
+            node.stop();
+            follower_2.stop();
+
+            sig
+        })
+    }
+
+    #[test]
+    fn one_of_three_nodes_in_a_cluster_doesnt_come_to_consensus_about_one_command() {
+        let mut node = helpers::node();
+        let mut follower_1 = helpers::node();
+        let mut follower_2 = helpers::node();
+
+        helpers::with_proper_comm(|mut comm| {
+            helpers::node_start(&mut node, "leader", &mut comm);
+            helpers::node_start(&mut follower_1, "sarah", &mut comm);
+            helpers::node_start(&mut follower_2, "john", &mut comm);
+
+            node.forced_state(Leader);
+
+            follower_1.introduce("leader");
+            follower_2.introduce("leader");
+
+            let sig = helpers::start_comm(comm);
+
+            helpers::sleep_ms(350);
+
+            let state = node.state();
+            assert_eq!(Leader, state);
+
+            follower_1.stop();
+            follower_2.stop();
+
+            helpers::sleep_ms(30);
+
+            node.enqueue(DefaultCommandContainer { command: TestSet(2) });
+            node.enqueue(DefaultCommandContainer { command: TestAdd(3) });
+            node.enqueue(DefaultCommandContainer { command: TestSet(9) });
+
+            helpers::sleep_ms(350);
+
+            let (tx, rx): (Sender < DefaultReceivable >, Receiver < DefaultReceivable >) = channel();
+
+            node.query(DefaultQuery, &tx);
+            helpers::sleep_ms(30);
+            match rx.try_recv() {
+                Ok(_) => panic!("Should have not been committed"),
+                _ => (),
+            }
+
+            node.stop();
 
             sig
         })
