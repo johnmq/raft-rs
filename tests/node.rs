@@ -445,6 +445,90 @@ mod election {
         })
     }
 
+    #[test]
+    fn majority_is_enough_to_decide_on_election() {
+        let mut node_1 = helpers::node();
+        let mut node_2 = helpers::node();
+        let mut node_3 = helpers::node();
+
+        helpers::with_proper_comm(|mut comm| {
+            helpers::node_start(&mut node_1, "john", &mut comm);
+            helpers::node_start(&mut node_2, "sarah", &mut comm);
+            helpers::node_start(&mut node_3, "james", &mut comm);
+
+            let sig = helpers::start_comm(comm);
+
+            node_1.forced_state(Leader);
+
+            node_2.introduce("john");
+            node_3.introduce("john");
+
+            helpers::sleep_ms(350);
+
+            let state = node_1.state();
+            assert_eq!(Leader, state);
+
+            node_1.stop();
+
+            helpers::sleep_ms(700);
+
+            let states = vec![node_2.state(), node_3.state()];
+            assert!(states.contains(&Candidate));
+
+            helpers::sleep_ms(1350);
+
+            let states = vec![node_2.state(), node_3.state()];
+            assert!(states.contains(&Leader));
+
+            node_2.stop();
+            node_3.stop();
+
+            sig
+        })
+    }
+
+
+    #[test]
+    fn without_majority_no_election_could_succeed() {
+        let mut node_1 = helpers::node();
+        let mut node_2 = helpers::node();
+        let mut node_3 = helpers::node();
+
+        helpers::with_proper_comm(|mut comm| {
+            helpers::node_start(&mut node_1, "john", &mut comm);
+            helpers::node_start(&mut node_2, "sarah", &mut comm);
+            helpers::node_start(&mut node_3, "james", &mut comm);
+
+            let sig = helpers::start_comm(comm);
+
+            node_1.forced_state(Leader);
+
+            node_2.introduce("john");
+            node_3.introduce("john");
+
+            helpers::sleep_ms(350);
+
+            let state = node_1.state();
+            assert_eq!(Leader, state);
+
+            node_1.stop();
+            node_2.stop();
+
+            helpers::sleep_ms(700);
+
+            let state = node_3.state();
+            assert_eq!(Candidate, state);
+
+            helpers::sleep_ms(1350);
+
+            let state = node_3.state();
+            assert!(vec![Candidate, Follower].contains(&state));
+
+            node_3.stop();
+
+            sig
+        })
+    }
 }
 
 mod replication {
@@ -527,5 +611,4 @@ mod replication {
             sig
         })
     }
-
 }

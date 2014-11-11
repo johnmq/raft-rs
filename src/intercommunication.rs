@@ -73,7 +73,11 @@ impl < T: Committable + Send > Intercommunication < T > for DefaultIntercommunic
     fn send(&mut self, recipient: String, package: Package < T >) {
         match self.senders.find(&recipient) {
             Some(tx) => {
-                tx.send(package);
+                // be more careful at sending
+                match tx.send_opt(package) {
+                    Err(_) => println!("{} is not available", recipient),
+                    _ => (),
+                }
             },
             None => (),
         }
