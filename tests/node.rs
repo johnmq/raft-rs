@@ -472,7 +472,7 @@ mod election {
 
             node_1.stop();
 
-            helpers::sleep_ms(500);
+            helpers::sleep_ms(650);
 
             let states = vec![node_2.state(), node_3.state()];
             assert!(states.contains(&Leader));
