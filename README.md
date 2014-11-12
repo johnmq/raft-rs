@@ -1,4 +1,4 @@
-# Raft-rs
+# Raft-rs [![Build Status](https://travis-ci.org/johnmq/raft-rs.svg?branch=master)](https://travis-ci.org/johnmq/raft-rs)
 
 > Raft consensus algorithm implementation in Rust language as a reusable library.
 
