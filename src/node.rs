@@ -41,11 +41,14 @@ struct NodeService < T: Committable + Send, R: ReplicationLog < T, Q, Rcv > + Se
     comm: Endpoint < T >,
 
     last_append_log_seen_at: time::Timespec,
+    last_sent_heartbeat: time::Timespec,
     term: uint,
     votes: uint,
     already_requested: bool,
 
     log: R,
+
+    election_timeout: Duration,
 }
 
 struct NodeContact < T: Committable + Send, Q: Queriable + Send, R: Receivable + Send > {
@@ -147,13 +150,14 @@ impl < T: Committable + Send + Clone + Show, Q: Queriable + Send, R: Receivable 
         self.contact().tx.send(ExitCommand);
     }
 
-    pub fn start < I: Intercommunication < T >, Y: ReplicationLog < T, Q, R > + 'static + Send >(&mut self, host: &str, intercommunication: &mut I, log: Y) {
+    pub fn start < I: Intercommunication < T >, Y: ReplicationLog < T, Q, R > + 'static + Send >(&mut self, host: &str, intercommunication: &mut I, log: Y, election_timeout: Duration) {
         match self.contact {
             Some(_) => {},
             None => self.contact = Some(NodeService::start_service(
                     host.to_string(),
                     intercommunication,
                     log,
+                    election_timeout,
                     )),
         }
     }
@@ -170,7 +174,7 @@ impl < T: Committable + Send + Clone + Show, Q: Queriable + Send, R: Receivable 
 }
 
 impl < T: Committable + Send + Clone + Show, R: ReplicationLog < T, Q, Rcv > + 'static + Send, Q: Queriable + Send, Rcv: Receivable + Send > NodeService < T, R, Q, Rcv > {
-    fn new (host: String, service_contact: NodeServiceContact < T, Q, Rcv >, comm: Endpoint < T >, log: R) -> NodeService < T, R, Q, Rcv > {
+    fn new (host: String, service_contact: NodeServiceContact < T, Q, Rcv >, comm: Endpoint < T >, log: R, election_timeout: Duration) -> NodeService < T, R, Q, Rcv > {
         NodeService {
             state: Follower,
             my_host: NodeHost { host: host.clone() },
@@ -182,21 +186,24 @@ impl < T: Committable + Send + Clone + Show, R: ReplicationLog < T, Q, Rcv > + '
             comm: comm,
 
             last_append_log_seen_at: time::now().to_timespec(),
+            last_sent_heartbeat: time::now().to_timespec(),
             term: 0,
             votes: 0,
             already_requested: false,
 
             log: log,
+
+            election_timeout: election_timeout,
         }
     }
 
-    fn start_service < I: Intercommunication < T > >(host: String, intercommunication: &mut I, log: R) -> NodeContact < T, Q, Rcv > {
+    fn start_service < I: Intercommunication < T > >(host: String, intercommunication: &mut I, log: R, election_timeout: Duration) -> NodeContact < T, Q, Rcv > {
         let (contact, service_contact) = NodeService::channels();
 
         let comm = intercommunication.register(host.clone());
 
         TaskBuilder::new().named(format!("{}-service", host)).spawn(proc() {
-            let mut me = NodeService::new(host, service_contact, comm, log);
+            let mut me = NodeService::new(host, service_contact, comm, log, election_timeout);
 
             let mut dead = false;
 
@@ -209,7 +216,7 @@ impl < T: Committable + Send + Clone + Show, R: ReplicationLog < T, Q, Rcv > + '
 
                 me.autocommit();
 
-                sleep(Duration::milliseconds(10));
+                sleep(Duration::milliseconds(2));
             }
         });
 
@@ -266,7 +273,6 @@ impl < T: Committable + Send + Clone + Show, R: ReplicationLog < T, Q, Rcv > + '
                 if self.state == Leader {
                     match self.log.enqueue(command.clone()) {
                         Ok(entry_offset) => {
-                            println!("Sending append_log with command");
                             self.send_append_log(Some(AppendLogEntry {
                                 offset: entry_offset,
                                 entry: command.clone(),
@@ -319,19 +325,12 @@ impl < T: Committable + Send + Clone + Show, R: ReplicationLog < T, Q, Rcv > + '
                 self.nodes = log.node_list.iter().map(|x| { NodeHost { host: x.clone() } }).collect();
                 self.last_append_log_seen_at = time::now().to_timespec();
                 self.leader_host = Some(NodeHost { host: leader.clone() });
-
-                println!("Got log.enqueue => {}", log.enqueue);
+                self.log.commit_upto(log.committed_offset);
 
                 match log.enqueue {
                     Some(log_entry) => {
-                        panic!("WTF?");
-                        println!("{}: Got command from {}", self.my_host.host, leader);
                         match self.log.enqueue(log_entry.entry.clone()) {
-                            Ok(my_offset) => {
-                                // self.log.commit_upto(offset);
-                                println!("Sending persisted {} to {}", log_entry.offset, leader);
-                                self.comm.send(leader, Persisted(log_entry.offset));
-                            },
+                            Ok(my_offset) => self.comm.send(leader, Persisted(log_entry.offset)),
                             _ => (),
                         }
                     },
@@ -357,6 +356,7 @@ impl < T: Committable + Send + Clone + Show, R: ReplicationLog < T, Q, Rcv > + '
                     self.votes += 1;
                     if self.votes > self.nodes.len() / 2 {
                         self.state = Leader;
+                        self.send_append_log(None);
                     }
                 }
             },
@@ -366,33 +366,25 @@ impl < T: Committable + Send + Clone + Show, R: ReplicationLog < T, Q, Rcv > + '
     }
 
     fn send_append_log(&mut self, enqueue: Option < AppendLogEntry < T > >) {
-        let node_list = self.nodes.clone();
-        let log = AppendLog {
-            node_list: node_list.iter().map(|x| { x.host.clone() }).collect(),
-            enqueue: enqueue,
-        };
+        let node_list: Vec < String > = self.nodes.clone().iter().map(|x| { x.host.clone() }).collect();
 
         for node in self.nodes.iter() {
             if node.host != self.my_host.host {
-                let pack = AppendQuery(log.clone());
-                match log.enqueue {
-                    Some(_) => println!("Sending enqueue({}) to {}", pack, node.host),
-                    _ => (),
-                }
-
-                match log.enqueue {
-                    Some(_) => println!("Sending enqueue({}) to {}", pack, node.host),
-                    _ => (),
-                }
-                self.comm.send(node.host.clone(), pack);
+                let committed_offset = self.log.committed_offset();
+                self.comm.send(node.host.clone(), AppendQuery(AppendLog {
+                    committed_offset: committed_offset,
+                    node_list: node_list.clone(),
+                    enqueue: enqueue.clone(),
+                }));
             }
         }
     }
 
     fn election_handler(&mut self) {
         let passed = time::now().to_timespec() - self.last_append_log_seen_at;
-        let ms = 150 + num::abs(rand::random::< i64 >() % 150);
-        let duration = Duration::milliseconds(ms);
+        let passed_since_heartbeat = time::now().to_timespec() - self.last_sent_heartbeat;
+        let duration = self.election_timeout;
+        let heartbeat_timeout = Duration::milliseconds(70);
 
         match self.state {
             Follower => {
@@ -403,6 +395,7 @@ impl < T: Committable + Send + Clone + Show, R: ReplicationLog < T, Q, Rcv > + '
                     self.last_append_log_seen_at = time::now().to_timespec();
                 }
             },
+
             Candidate => {
                 if passed > duration {
                     self.state = Follower;
@@ -421,15 +414,27 @@ impl < T: Committable + Send + Clone + Show, R: ReplicationLog < T, Q, Rcv > + '
                     }
                 }
             },
+
             Leader => {
-                self.send_append_log(None);
+                if passed_since_heartbeat > heartbeat_timeout {
+                    self.send_append_log(None);
+                    self.last_sent_heartbeat = time::now().to_timespec();
+                }
             },
         }
     }
 
     fn autocommit(&mut self) {
-        let majority_size = self.nodes.len();
+        let majority_size = (self.nodes.len() + 1) / 2;
+        let committed_offset_was = self.log.committed_offset();
 
-        self.log.autocommit_if_safe(majority_size);
+        match self.state {
+            Leader => self.log.autocommit_if_safe(majority_size),
+            _ => (),
+        }
+
+        if committed_offset_was < self.log.committed_offset() {
+            self.send_append_log(None);
+        }
     }
 }

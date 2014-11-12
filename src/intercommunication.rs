@@ -35,6 +35,7 @@ pub struct Endpoint < T: Committable + Send > {
 
 #[deriving(Clone, Show)]
 pub struct AppendLog < T: Committable + Send > {
+    pub committed_offset: uint,
     pub node_list: Vec < String >,
     pub enqueue: Option < AppendLogEntry < T > >,
 }
@@ -77,18 +78,11 @@ impl < T: Committable + Send + Show > Intercommunication < T > for DefaultInterc
     }
 
     fn send(&mut self, recipient: String, package: Package < T >) {
-        println!("Sending package: {}", package);
-
         match self.senders.find(&recipient) {
             Some(tx) => {
                 // be more careful at sending
                 match tx.send_opt(package) {
-                    Err(Pack(_, _, AppendQuery(pack))) => {
-                        match pack.enqueue {
-                            Some(_) => println!("Unable to send append_query to {}", recipient),
-                            _ => (),
-                        }
-                    },
+                    Err(_) => (),
                     _ => (),
                 }
             },
@@ -113,7 +107,7 @@ impl < T: Committable + Send > Endpoint < T > {
                 _ => ()
             }
 
-            sleep(Duration::milliseconds(10));
+            sleep(Duration::milliseconds(2));
         }
 
         None
@@ -181,7 +175,7 @@ pub fn start < T: Committable + Send + Clone + Show, I: Intercommunication < T >
 
             intercommunication.cond.signal();
 
-            sleep(Duration::milliseconds(10));
+            sleep(Duration::milliseconds(2));
         }
     });
 

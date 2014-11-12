@@ -5,6 +5,7 @@ mod helpers {
     use raft_rs::intercommunication::{DefaultIntercommunication, Intercommunication, start};
     use raft_rs::replication::{DefaultReplicationLog, ReplicationLog, DefaultCommandContainer, DefaultReceivable, DefaultQuery};
 
+    use std::{rand, num};
     use std::io::timer::sleep;
     use std::time::duration::Duration;
 
@@ -35,7 +36,8 @@ mod helpers {
 
     pub fn node_start(node: &mut Node < DefaultCommandContainer, DefaultQuery, DefaultReceivable >, host: &str, comm: &mut DefaultIntercommunication < DefaultCommandContainer >) {
         let mut log: DefaultReplicationLog = ReplicationLog::new();
-        node.start(host, comm, log);
+        let election_timeout = 150 + num::abs(rand::random::< i64 >() % 150);
+        node.start(host, comm, log, Duration::milliseconds(election_timeout));
     }
 }
 
@@ -470,12 +472,7 @@ mod election {
 
             node_1.stop();
 
-            helpers::sleep_ms(700);
-
-            let states = vec![node_2.state(), node_3.state()];
-            assert!(states.contains(&Candidate));
-
-            helpers::sleep_ms(1350);
+            helpers::sleep_ms(500);
 
             let states = vec![node_2.state(), node_3.state()];
             assert!(states.contains(&Leader));
@@ -517,7 +514,7 @@ mod election {
             helpers::sleep_ms(700);
 
             let state = node_3.state();
-            assert_eq!(Candidate, state);
+            assert!(vec![Candidate, Follower].contains(&state));
 
             helpers::sleep_ms(1350);
 
@@ -564,7 +561,7 @@ mod replication {
             node.enqueue(DefaultCommandContainer { command: TestAdd(3) });
             node.enqueue(DefaultCommandContainer { command: TestSet(9) });
 
-            helpers::sleep_ms(350);
+            helpers::sleep_ms(40);
 
             let (tx, rx): (Sender < DefaultReceivable >, Receiver < DefaultReceivable >) = channel();
 
@@ -643,7 +640,7 @@ mod replication {
             node.enqueue(DefaultCommandContainer { command: TestAdd(3) });
             node.enqueue(DefaultCommandContainer { command: TestSet(9) });
 
-            helpers::sleep_ms(350);
+            helpers::sleep_ms(40);
 
             let (tx, rx): (Sender < DefaultReceivable >, Receiver < DefaultReceivable >) = channel();
 
@@ -710,7 +707,7 @@ mod replication {
             node.enqueue(DefaultCommandContainer { command: TestAdd(3) });
             node.enqueue(DefaultCommandContainer { command: TestSet(9) });
 
-            helpers::sleep_ms(350);
+            helpers::sleep_ms(40);
 
             let (tx, rx): (Sender < DefaultReceivable >, Receiver < DefaultReceivable >) = channel();
 

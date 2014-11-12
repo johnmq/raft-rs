@@ -49,13 +49,13 @@ pub trait ReplicationLog < T: Committable, Q: Queriable, R: Receivable > {
     fn query_persistance(&mut self, query: Q, respond_to: Sender < R >);
 }
 
-#[deriving(Clone, Show)]
+#[deriving(Clone, Show, PartialEq)]
 pub enum DefaultCommand {
     TestSet(int),
     TestAdd(int),
 }
 
-#[deriving(Clone, Show)]
+#[deriving(Clone, Show, PartialEq)]
 pub struct DefaultCommandContainer {
     pub command: DefaultCommand,
 }
@@ -92,7 +92,7 @@ impl DefaultPersistence {
                     _ => ()
                 }
 
-                sleep(Duration::milliseconds(10));
+                sleep(Duration::milliseconds(2));
             }
         });
 
@@ -124,11 +124,6 @@ impl LogPersistence < DefaultCommandContainer > for DefaultPersistence {
 
 impl DefaultReplicationLog {
     fn safe_to_commit(&mut self, offset: uint, majority_size: uint) -> bool {
-        if self.persisted_by.len() > 0 {
-            if self.persisted_by.len() > offset && self.persisted_by[offset].node_list.len() > 1 {
-                println!("persisted by count: {}", self.persisted_by[offset].node_list.len());
-            }
-        }
         self.persisted_by.len() > offset &&
             self.persisted_by[offset].node_list.len() >= majority_size
     }
@@ -173,8 +168,7 @@ impl ReplicationLog < DefaultCommandContainer, DefaultQuery, DefaultReceivable >
         let safe = self.safe_to_commit(target_offset, majority_size);
 
         if safe {
-            println!("Auto-committing");
-            self.commit_upto(target_offset);
+            self.commit_upto(target_offset + 1);
         }
     }
 
@@ -185,9 +179,7 @@ impl ReplicationLog < DefaultCommandContainer, DefaultQuery, DefaultReceivable >
     }
 
     fn persisted(&mut self, offset: uint, host: String) -> io::IoResult < uint > {
-        println!("Trying to persist {} for {}", offset, host);
         if !self.persisted_by[offset].node_list.contains(&host) {
-            println!("Done persisting {} for {}", offset, host);
             self.persisted_by[offset].node_list.push(host);
         }
         Ok(offset)
