@@ -28,9 +28,9 @@ pub struct DefaultIntercommunication < T: Committable + Send > {
 }
 
 pub struct Endpoint < T: Committable + Send > {
-    host: String,
-    tx: Sender < Package < T > >,
-    rx: Receiver < Package < T > >,
+    pub host: String,
+    pub tx: Sender < Package < T > >,
+    pub rx: Receiver < Package < T > >,
 }
 
 #[deriving(Clone, Show)]
