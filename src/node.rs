@@ -127,6 +127,7 @@ impl < T: Committable + Send + Clone + Show, Q: Queriable + Send, R: Receivable 
     }
 
     pub fn introduce(&self, host: &str) {
+        self.forced_state(Follower);
         self.contact().tx.send(Introduce(host.to_string()));
     }
 
