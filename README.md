@@ -63,7 +63,7 @@ It exposes a bunch of traits that can be implemented and injected back into
 
 ```rust
 // use raft_rs::intercommunication::Intercommunication;
-pub trait Intercommunication < T: Committable + Send > {
+pub trait Intercommunication < T: Committable + Send + Show > {
     fn new() -> Self;
     fn register(&mut self, host: String) -> Endpoint < T >;
     fn receive(&mut self) -> Option < Package < T > >;
@@ -80,11 +80,16 @@ pub trait LogPersistence < T: Committable > {
 }
 pub trait ReplicationLog < T: Committable, Q: Queriable, R: Receivable > {
     fn new() -> Self;
+
     fn len(&self) -> uint;
     fn committed_offset(&self) -> uint;
     fn commit_upto(&mut self, new_committed_offset: uint) -> io::IoResult < () >;
     fn discard_downto(&mut self, new_len: uint) -> io::IoResult < () >;
+
+    fn autocommit_if_safe(&mut self, majority_size: uint);
+
     fn enqueue(&mut self, entry: T) -> io::IoResult < uint >;
+    fn persisted(&mut self, offset: uint, node: String) -> io::IoResult < uint >;
     fn query_persistance(&mut self, query: Q, respond_to: Sender < R >);
 }
 ```
