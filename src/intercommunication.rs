@@ -9,6 +9,8 @@ use std::sync::{Arc, Mutex};
 
 use std::task::TaskBuilder;
 
+use serialize::json;
+
 use super::replication::Committable;
 
 pub trait Intercommunication < T: Committable + Send + Show > {
@@ -33,15 +35,15 @@ pub struct Endpoint < T: Committable + Send > {
     pub rx: Receiver < Package < T > >,
 }
 
-#[deriving(Clone, Show)]
-pub struct AppendLog < T: Committable + Send > {
+#[deriving(Encodable, Decodable, Show, Clone, Send)]
+pub struct AppendLog < T: Committable > {
     pub committed_offset: uint,
     pub node_list: Vec < String >,
     pub enqueue: Option < AppendLogEntry < T > >,
 }
 
-#[deriving(Clone, Show)]
-pub struct AppendLogEntry < T: Committable + Send > {
+#[deriving(Encodable, Decodable, Show, Clone, Send)]
+pub struct AppendLogEntry < T: Committable > {
     pub offset: uint,
     pub entry: T,
 }
@@ -121,7 +123,7 @@ impl < T: Committable + Send > Endpoint < T > {
     }
 }
 
-#[deriving(Show)]
+#[deriving(Encodable, Decodable, Show, Clone)]
 pub enum PackageDetails < T: Committable + Send > {
     Ack,
 
@@ -143,7 +145,7 @@ pub enum PackageDetails < T: Committable + Send > {
     Vote(uint),
 }
 
-#[deriving(Show)]
+#[deriving(Encodable, Decodable, Show, Clone)]
 pub enum Package < T: Committable + Send > {
     // Pack(from, to, package)
     Pack(String, String, PackageDetails < T >),
@@ -177,8 +179,6 @@ pub fn start < T: Committable + Send + Clone + Show, I: Intercommunication < T >
 
             sleep(Duration::milliseconds(2));
         }
-
-        println!("intercommunication task is dead");
     });
 
     exit_tx
