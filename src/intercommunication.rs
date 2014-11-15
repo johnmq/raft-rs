@@ -169,7 +169,7 @@ pub fn start < T: Committable + Send + Clone + Show, I: Intercommunication < T >
             }
 
             match exit_rx.try_recv() {
-                Ok(_) | Err(Disconnected) => break,
+                Ok(_) => break,
                 _ => (),
             }
 
@@ -178,7 +178,7 @@ pub fn start < T: Committable + Send + Clone + Show, I: Intercommunication < T >
             sleep(Duration::milliseconds(2));
         }
 
-        println!("intercommunication is dead");
+        println!("intercommunication task is dead");
     });
 
     exit_tx
