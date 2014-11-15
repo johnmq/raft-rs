@@ -177,6 +177,8 @@ pub fn start < T: Committable + Send + Clone + Show, I: Intercommunication < T >
 
             sleep(Duration::milliseconds(2));
         }
+
+        println!("intercommunication is dead");
     });
 
     exit_tx
