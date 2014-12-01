@@ -251,14 +251,14 @@ impl < T: Committable + Send + Clone + Show, R: ReplicationLog < T, Q, Rcv > + '
                 self.contact.tx.send(FetchedState(self.state));
             },
 
-            Ok(FetchLeader) => self.contact.tx.send(FetchedLeader(self.leader_host.clone())),
+            Ok(FetchLeader) => self.contact.tx.send(FetchedLeader(self.fetch_leader_host().clone())),
             Ok(AssignLeader(leader)) => {
                 self.leader_host = leader.clone();
                 match leader {
                     Some(leader) => self.comm.send(leader.host, Ack),
                     None => (),
                 }
-                self.contact.tx.send(FetchedLeader(self.leader_host.clone()));
+                self.contact.tx.send(FetchedLeader(self.fetch_leader_host().clone()));
             },
 
             Ok(FetchNodes) => self.contact.tx.send(FetchedNodes(self.nodes.clone())),
@@ -307,7 +307,7 @@ impl < T: Committable + Send + Clone + Show, R: ReplicationLog < T, Q, Rcv > + '
             },
 
             Some(Pack(from, _, LeaderQuery)) => {
-                let leader_host = match self.leader_host {
+                let leader_host = match self.fetch_leader_host() {
                     Some(NodeHost { ref host }) => Some(host.clone()),
                     None => None,
                 };
@@ -417,11 +417,20 @@ impl < T: Committable + Send + Clone + Show, R: ReplicationLog < T, Q, Rcv > + '
             },
 
             Leader => {
+                self.leader_host = None;
+
                 if passed_since_heartbeat > heartbeat_timeout {
                     self.send_append_log(None);
                     self.last_sent_heartbeat = time::now().to_timespec();
                 }
             },
+        }
+    }
+
+    fn fetch_leader_host(&self) -> Option < NodeHost > {
+        match self.state {
+            Leader => None,
+            _ => self.leader_host.clone(),
         }
     }
 
