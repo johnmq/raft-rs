@@ -441,6 +441,9 @@ mod election {
             let state = node.state();
             assert_eq!(Leader, state);
 
+            let leader = node.fetch_leader();
+            assert_eq!("john".to_string(), leader.unwrap().host);
+
             node.stop();
 
             sig
