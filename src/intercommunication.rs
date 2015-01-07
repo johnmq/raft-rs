@@ -155,7 +155,7 @@ pub fn start < T: Committable + Send + Clone + Show, I: Intercommunication < T >
     let mutex = Arc::new(Mutex::new(intercommunication));
     let (exit_tx, exit_rx) = channel();
 
-    TaskBuilder::new().named("intercommunication").spawn(proc() {
+    TaskBuilder::new().named("intercommunication").spawn(move || {
         loop {
             let mut intercommunication = mutex.lock();
 

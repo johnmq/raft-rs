@@ -75,7 +75,7 @@ impl DefaultPersistence {
             rx: value_rx,
         };
 
-        spawn(proc() {
+        spawn(move || {
             let mut value = 0i;
 
             loop {
