@@ -35,18 +35,22 @@ pub struct Endpoint < T: Committable + Send > {
     pub rx: Receiver < Package < T > >,
 }
 
-#[deriving(Encodable, Decodable, Show, Clone, Send)]
+#[deriving(Encodable, Decodable, Show, Clone)]
 pub struct AppendLog < T: Committable > {
     pub committed_offset: uint,
     pub node_list: Vec < String >,
     pub enqueue: Option < AppendLogEntry < T > >,
 }
 
-#[deriving(Encodable, Decodable, Show, Clone, Send)]
+unsafe impl Send for AppendLog { }
+
+#[deriving(Encodable, Decodable, Show, Clone)]
 pub struct AppendLogEntry < T: Committable > {
     pub offset: uint,
     pub entry: T,
 }
+
+unsafe impl Send for AppendLogEntry { }
 
 impl < T: Committable + Send + Show > Intercommunication < T > for DefaultIntercommunication < T > {
     fn new() -> DefaultIntercommunication < T > {
