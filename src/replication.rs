@@ -19,7 +19,7 @@ pub trait LogPersistence < T: Committable > {
     fn commit(&self, entry: T) -> io::IoResult < () >;
 }
 
-#[deriving(Show, PartialEq)]
+#[derive(Show, PartialEq)]
 pub enum DefaultReceivable {
     ReceivableInt(int),
 }
@@ -49,13 +49,13 @@ pub trait ReplicationLog < T: Committable, Q: Queriable, R: Receivable > {
     fn query_persistance(&mut self, query: Q, respond_to: Sender < R >);
 }
 
-#[deriving(Clone, Show, PartialEq)]
+#[derive(Clone, Show, PartialEq)]
 pub enum DefaultCommand {
     TestSet(int),
     TestAdd(int),
 }
 
-#[deriving(Clone, Show, PartialEq)]
+#[derive(Clone, Show, PartialEq)]
 pub struct DefaultCommandContainer {
     pub command: DefaultCommand,
 }

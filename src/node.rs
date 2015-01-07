@@ -14,7 +14,7 @@ use std::fmt::Show;
 use super::intercommunication::{Intercommunication, Ack, LeaderQuery, LeaderQueryResponse, Persisted, Pack, Endpoint, AppendQuery, AppendLog, AppendLogEntry, RequestVote, Vote};
 use super::replication::{ReplicationLog, Committable, Receivable, Queriable};
 
-#[deriving(Clone,Show,PartialEq)]
+#[derive(Clone,Show,PartialEq)]
 pub enum State {
     Follower,
     Candidate,
@@ -25,7 +25,7 @@ pub struct Node < T: Committable + Send, Q: Queriable + Send, R: Receivable + Se
     contact: Option < NodeContact < T, Q, R > >,
 }
 
-#[deriving(Clone,Show,PartialEq)]
+#[derive(Clone,Show,PartialEq)]
 pub struct NodeHost {
     pub host: String,
 }
