@@ -35,7 +35,7 @@ pub struct Endpoint < T: Committable + Send > {
     pub rx: Receiver < Package < T > >,
 }
 
-#[derive(Encodable, Decodable, Show, Clone)]
+#[derive(RustcEncodable, RustcDecodable, Show, Clone)]
 pub struct AppendLog < T: Committable > {
     pub committed_offset: uint,
     pub node_list: Vec < String >,
@@ -44,7 +44,7 @@ pub struct AppendLog < T: Committable > {
 
 unsafe impl Send for AppendLog { }
 
-#[derive(Encodable, Decodable, Show, Clone)]
+#[derive(RustcEncodable, RustcDecodable, Show, Clone)]
 pub struct AppendLogEntry < T: Committable > {
     pub offset: uint,
     pub entry: T,
@@ -127,7 +127,7 @@ impl < T: Committable + Send > Endpoint < T > {
     }
 }
 
-#[derive(Encodable, Decodable, Show, Clone)]
+#[derive(RustcEncodable, RustcDecodable, Show, Clone)]
 pub enum PackageDetails < T: Committable + Send > {
     Ack,
 
@@ -149,7 +149,7 @@ pub enum PackageDetails < T: Committable + Send > {
     Vote(uint),
 }
 
-#[derive(Encodable, Decodable, Show, Clone)]
+#[derive(RustcEncodable, RustcDecodable, Show, Clone)]
 pub enum Package < T: Committable + Send > {
     // Pack(from, to, package)
     Pack(String, String, PackageDetails < T >),
