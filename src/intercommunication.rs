@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 use std::io::timer::sleep;
 use std::time::duration::Duration;
-use std::comm::Disconnected;
+use std::sync::mpsc::TryRecvError;
 
 use std::fmt::Show;
 
 use std::sync::{Arc, Mutex};
 
-use std::task::TaskBuilder;
+use std::thread;
 
 use serialize::json;
 
@@ -159,7 +159,7 @@ pub fn start < T: Committable + Send + Clone + Show, I: Intercommunication < T >
     let mutex = Arc::new(Mutex::new(intercommunication));
     let (exit_tx, exit_rx) = channel();
 
-    TaskBuilder::new().named("intercommunication").spawn(move || {
+    thread::Builder::new().named("intercommunication").spawn(move || {
         loop {
             let mut intercommunication = mutex.lock();
 

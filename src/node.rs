@@ -3,9 +3,9 @@ extern crate core;
 
 use std::io::timer::sleep;
 use std::time::duration::Duration;
-use std::comm::Disconnected;
+use std::sync::mpsc::TryRecvError;
 
-use std::task::TaskBuilder;
+use std::thread;
 
 use std::{rand, num};
 
@@ -203,7 +203,7 @@ impl < T: Committable + Send + Clone + Show, R: ReplicationLog < T, Q, Rcv > + '
 
         let comm = intercommunication.register(host.clone());
 
-        TaskBuilder::new().named(format!("{}-service", host)).spawn(move || {
+        thread::Builder::new().named(format!("{}-service", host)).spawn(move || {
             let mut me = NodeService::new(host, service_contact, comm, log, election_timeout);
 
             let mut dead = false;
