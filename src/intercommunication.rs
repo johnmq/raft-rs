@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 
 use std::thread;
 
-use serialize::json;
+use rustc_serialize::json;
 
 use super::replication::Committable;
 
