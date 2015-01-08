@@ -1,7 +1,7 @@
 use std::io;
 use std::io::timer::sleep;
 use std::time::duration::Duration;
-use std::sync::mpsc::TryRecvError;
+use std::sync::mpsc::*;
 
 pub trait Committable {
 
