@@ -42,7 +42,7 @@ pub struct AppendLog < T: Committable > {
     pub enqueue: Option < AppendLogEntry < T > >,
 }
 
-unsafe impl Send for AppendLog { }
+unsafe impl < T: Committable > Send for AppendLog < T > { }
 
 #[derive(RustcEncodable, RustcDecodable, Show, Clone)]
 pub struct AppendLogEntry < T: Committable > {
@@ -50,7 +50,7 @@ pub struct AppendLogEntry < T: Committable > {
     pub entry: T,
 }
 
-unsafe impl Send for AppendLogEntry { }
+unsafe impl < T: Committable > Send for AppendLogEntry < T > { }
 
 impl < T: Committable + Send + Show > Intercommunication < T > for DefaultIntercommunication < T > {
     fn new() -> DefaultIntercommunication < T > {
@@ -103,7 +103,7 @@ impl < T: Committable + Send + Show > Intercommunication < T > for DefaultInterc
 
 impl < T: Committable + Send > Endpoint < T > {
     pub fn send (&self, host: String, package: PackageDetails < T >) {
-        self.tx.send(Pack(self.host.clone(), host, package));
+        self.tx.send(Package::Pack(self.host.clone(), host, package));
     }
 
     pub fn listen_block_with_timeout(&self) -> Option < Package < T > > {
@@ -164,12 +164,12 @@ pub fn start < T: Committable + Send + Clone + Show, I: Intercommunication < T >
             let mut intercommunication = mutex.lock();
 
             match intercommunication.receive() {
-                Some(Pack(from, to, package)) => {
+                Some(Package::Pack(from, to, package)) => {
                     if intercommunication.is_debug() {
                         println!("sent package {} to host {} from {}", package, to, from);
                     }
 
-                    intercommunication.send(to.clone(), Pack(from, to, package));
+                    intercommunication.send(to.clone(), Package::Pack(from, to, package));
                 },
                 None => ()
             }

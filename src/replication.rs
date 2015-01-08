@@ -3,15 +3,17 @@ use std::io::timer::sleep;
 use std::time::duration::Duration;
 use std::sync::mpsc::*;
 
-pub trait Committable {
+use std::thread;
+
+pub trait Committable: Send + 'static {
 
 }
 
-pub trait Receivable {
+pub trait Receivable: Send + 'static {
 
 }
 
-pub trait Queriable {
+pub trait Queriable: Send + 'static {
 
 }
 
@@ -34,7 +36,7 @@ impl Queriable for DefaultQuery {
 
 }
 
-pub trait ReplicationLog < T: Committable, Q: Queriable, R: Receivable > {
+pub trait ReplicationLog < T: Committable, Q: Queriable, R: Receivable >: Send + 'static {
     fn new() -> Self;
 
     fn len(&self) -> uint;
@@ -75,15 +77,15 @@ impl DefaultPersistence {
             rx: value_rx,
         };
 
-        spawn(move || {
+        thread::Builder::new().spawn(move || {
             let mut value = 0i;
 
             loop {
                 match rx.try_recv() {
                     Ok(command) => {
                         match command {
-                            DefaultCommandContainer{ command: TestSet(x) } => value = x,
-                            DefaultCommandContainer{ command: TestAdd(dx) } => value += dx,
+                            DefaultCommandContainer{ command: DefaultCommand::TestSet(x) } => value = x,
+                            DefaultCommandContainer{ command: DefaultCommand::TestAdd(dx) } => value += dx,
                         }
 
                         value_tx.send(value);
@@ -187,7 +189,7 @@ impl ReplicationLog < DefaultCommandContainer, DefaultQuery, DefaultReceivable >
 
     fn query_persistance(&mut self, query: DefaultQuery, respond_to: Sender < DefaultReceivable >) {
         match self.persistence.rx.try_recv() {
-            Ok(value) => respond_to.send(ReceivableInt(value)),
+            Ok(value) => respond_to.send(DefaultReceivable::ReceivableInt(value)),
             _ => (),
         }
     }
