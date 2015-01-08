@@ -11,7 +11,7 @@ use std::{rand, num};
 
 use std::fmt::Show;
 
-use super::intercommunication::{Intercommunication, Ack, LeaderQuery, LeaderQueryResponse, Persisted, Pack, Endpoint, AppendQuery, AppendLog, AppendLogEntry, RequestVote, Vote};
+use super::intercommunication::{Intercommunication, PackageDetails, Package, Endpoint, AppendLog, AppendLogEntry};
 use super::replication::{ReplicationLog, Committable, Receivable, Queriable};
 
 #[derive(Clone,Show,PartialEq)]
@@ -93,31 +93,31 @@ impl < T: Committable + Send + Clone + Show, Q: Queriable + Send, R: Receivable 
     }
 
     pub fn state(&self) -> State {
-        self.contact().tx.send(FetchState);
+        self.contact().tx.send(Command::FetchState);
         match self.contact().rx.recv() {
-            FetchedState(state) => state,
+            CommandResponse::FetchedState(state) => state,
             _ => unreachable!(),
         }
     }
 
     pub fn forced_state(&self, state: State) -> State {
-        self.contact().tx.send(AssignState(state));
+        self.contact().tx.send(Command::AssignState(state));
         match self.contact().rx.recv() {
-            FetchedState(state) => state,
+            CommandResponse::FetchedState(state) => state,
             _ => unreachable!(),
         }
     }
 
     pub fn fetch_leader(&self) -> Option < NodeHost > {
-        self.contact().tx.send(FetchLeader);
+        self.contact().tx.send(Command::FetchLeader);
         match self.contact().rx.recv() {
-            FetchedLeader(leader) => leader,
+            CommandResponse::FetchedLeader(leader) => leader,
             _ => unreachable!(),
         }
     }
 
     pub fn force_follow(&self, host: &str) -> Option < NodeHost > {
-        self.forced_state(Follower);
+        self.forced_state(State::Follower);
 
         self.contact().tx.send(AssignLeader(Some(NodeHost { host: host.to_string() })));
         match self.contact().rx.recv() {
@@ -127,7 +127,7 @@ impl < T: Committable + Send + Clone + Show, Q: Queriable + Send, R: Receivable 
     }
 
     pub fn introduce(&self, host: &str) {
-        self.forced_state(Follower);
+        self.forced_state(State::Follower);
         self.contact().tx.send(Introduce(host.to_string()));
     }
 
@@ -177,7 +177,7 @@ impl < T: Committable + Send + Clone + Show, Q: Queriable + Send, R: Receivable 
 impl < T: Committable + Send + Clone + Show, R: ReplicationLog < T, Q, Rcv > + 'static + Send, Q: Queriable + Send, Rcv: Receivable + Send > NodeService < T, R, Q, Rcv > {
     fn new (host: String, service_contact: NodeServiceContact < T, Q, Rcv >, comm: Endpoint < T >, log: R, election_timeout: Duration) -> NodeService < T, R, Q, Rcv > {
         NodeService {
-            state: Follower,
+            state: State::Follower,
             my_host: NodeHost { host: host.clone() },
             leader_host: None,
 
@@ -245,20 +245,20 @@ impl < T: Committable + Send + Clone + Show, R: ReplicationLog < T, Q, Rcv > + '
         let mut dead = false;
 
         match self.contact.rx.try_recv() {
-            Ok(FetchState) => self.contact.tx.send(FetchedState(self.state)),
-            Ok(AssignState(state)) => {
+            Ok(Command::FetchState) => self.contact.tx.send(CommandResponse::FetchedState(self.state)),
+            Ok(Command::AssignState(state)) => {
                 self.state = state;
-                self.contact.tx.send(FetchedState(self.state));
+                self.contact.tx.send(CommandResponse::FetchedState(self.state));
             },
 
-            Ok(FetchLeader) => self.contact.tx.send(FetchedLeader(self.fetch_leader_host().clone())),
+            Ok(Command::FetchLeader) => self.contact.tx.send(CommandResponse::FetchedLeader(self.fetch_leader_host().clone())),
             Ok(AssignLeader(leader)) => {
                 self.leader_host = leader.clone();
                 match leader {
                     Some(leader) => self.comm.send(leader.host, Ack),
                     None => (),
                 }
-                self.contact.tx.send(FetchedLeader(self.fetch_leader_host().clone()));
+                self.contact.tx.send(CommandResponse::FetchedLeader(self.fetch_leader_host().clone()));
             },
 
             Ok(FetchNodes) => self.contact.tx.send(FetchedNodes(self.nodes.clone())),
@@ -388,7 +388,7 @@ impl < T: Committable + Send + Clone + Show, R: ReplicationLog < T, Q, Rcv > + '
         let heartbeat_timeout = Duration::milliseconds(70);
 
         match self.state {
-            Follower => {
+            State::Follower => {
                 if passed > duration {
                     self.state = Candidate;
                     self.votes = 0;
@@ -399,7 +399,7 @@ impl < T: Committable + Send + Clone + Show, R: ReplicationLog < T, Q, Rcv > + '
 
             Candidate => {
                 if passed > duration {
-                    self.state = Follower;
+                    self.state = State::Follower;
                     self.votes = 0;
                     self.last_append_log_seen_at = time::now().to_timespec();
                 }
