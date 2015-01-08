@@ -1,15 +1,15 @@
 use std::collections::HashMap;
 use std::io::timer::sleep;
 use std::time::duration::Duration;
-use std::comm::Disconnected;
+use std::sync::mpsc::*;
 
 use std::fmt::Show;
 
 use std::sync::{Arc, Mutex};
 
-use std::task::TaskBuilder;
+use std::thread;
 
-use serialize::json;
+use rustc_serialize::json;
 
 use super::replication::Committable;
 
@@ -35,18 +35,22 @@ pub struct Endpoint < T: Committable + Send > {
     pub rx: Receiver < Package < T > >,
 }
 
-#[deriving(Encodable, Decodable, Show, Clone, Send)]
+#[derive(RustcEncodable, RustcDecodable, Show, Clone)]
 pub struct AppendLog < T: Committable > {
     pub committed_offset: uint,
     pub node_list: Vec < String >,
     pub enqueue: Option < AppendLogEntry < T > >,
 }
 
-#[deriving(Encodable, Decodable, Show, Clone, Send)]
+unsafe impl < T: Committable > Send for AppendLog < T > { }
+
+#[derive(RustcEncodable, RustcDecodable, Show, Clone)]
 pub struct AppendLogEntry < T: Committable > {
     pub offset: uint,
     pub entry: T,
 }
+
+unsafe impl < T: Committable > Send for AppendLogEntry < T > { }
 
 impl < T: Committable + Send + Show > Intercommunication < T > for DefaultIntercommunication < T > {
     fn new() -> DefaultIntercommunication < T > {
@@ -99,7 +103,7 @@ impl < T: Committable + Send + Show > Intercommunication < T > for DefaultInterc
 
 impl < T: Committable + Send > Endpoint < T > {
     pub fn send (&self, host: String, package: PackageDetails < T >) {
-        self.tx.send(Pack(self.host.clone(), host, package));
+        self.tx.send(Package::Pack(self.host.clone(), host, package));
     }
 
     pub fn listen_block_with_timeout(&self) -> Option < Package < T > > {
@@ -123,7 +127,7 @@ impl < T: Committable + Send > Endpoint < T > {
     }
 }
 
-#[deriving(Encodable, Decodable, Show, Clone)]
+#[derive(RustcEncodable, RustcDecodable, Show, Clone)]
 pub enum PackageDetails < T: Committable + Send > {
     Ack,
 
@@ -145,7 +149,7 @@ pub enum PackageDetails < T: Committable + Send > {
     Vote(uint),
 }
 
-#[deriving(Encodable, Decodable, Show, Clone)]
+#[derive(RustcEncodable, RustcDecodable, Show, Clone)]
 pub enum Package < T: Committable + Send > {
     // Pack(from, to, package)
     Pack(String, String, PackageDetails < T >),
@@ -155,17 +159,17 @@ pub fn start < T: Committable + Send + Clone + Show, I: Intercommunication < T >
     let mutex = Arc::new(Mutex::new(intercommunication));
     let (exit_tx, exit_rx) = channel();
 
-    TaskBuilder::new().named("intercommunication").spawn(proc() {
+    thread::Builder::new().named("intercommunication").spawn(move || {
         loop {
             let mut intercommunication = mutex.lock();
 
             match intercommunication.receive() {
-                Some(Pack(from, to, package)) => {
+                Some(Package::Pack(from, to, package)) => {
                     if intercommunication.is_debug() {
                         println!("sent package {} to host {} from {}", package, to, from);
                     }
 
-                    intercommunication.send(to.clone(), Pack(from, to, package));
+                    intercommunication.send(to.clone(), Package::Pack(from, to, package));
                 },
                 None => ()
             }

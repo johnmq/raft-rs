@@ -3,3 +3,9 @@
 name = "raft_rs"
 version = "0.0.3"
 authors = ["Alexey Fedorov <alexey.fedorov@wimdu.com>"]
+
+[dependencies.time]
+git = "https://github.com/rust-lang/time"
+
+[dependencies]
+rustc-serialize = "0.2"
